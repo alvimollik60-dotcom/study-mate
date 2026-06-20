@@ -135,11 +135,9 @@ async function login() {
     errorMsg.innerText = "লোডিং... অনুগ্রহ করে অপেক্ষা করুন।";
 
     try {
-        // Firebase Auth দিয়ে লাইভ চেক
         const userCredential = await window.fbSignIn(window.firebaseAuth, fakeEmail, passVal);
         const user = userCredential.user;
 
-        // Firestore Database থেকে রোলের ডাটা চেক
         const userDocRef = window.fbFirestore.doc(window.firebaseDb, "users", user.uid);
         const userDoc = await window.fbFirestore.getDoc(userDocRef);
         
@@ -149,7 +147,6 @@ async function login() {
             currentUser = { username: userVal, role: 'user', uid: user.uid };
         }
 
-        // ইন্টারফেস আপডেট
         document.getElementById('login-section').classList.remove('active-section');
         document.getElementById('app-section').classList.add('active-section');
         
@@ -493,29 +490,6 @@ function addSubunit(chapIndex) {
     localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
 }
 
-function deleteSubunit(chapIndex, unitIndex) {
-    if (currentUser.role !== 'admin') return;
-    globalSyllabusData[currentSelectedSubject][chapIndex].subunits.splice(unitIndex, 1);
-    renderNestedSyllabus();
-    localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
-}
-
-function toggleChapter(chapIndex) {
-    const isCollapsed = !globalSyllabusData[currentSelectedSubject][chapIndex].collapsed;
-    globalSyllabusData[currentSelectedSubject][chapIndex].collapsed = isCollapsed;
-    const block = document.getElementById(`chap-block-${chapIndex}`);
-    const icon = document.getElementById(`toggle-icon-${chapIndex}`);
-    if (isCollapsed) { block.classList.add('collapsed'); icon.className = 'fa-solid fa-chevron-down'; } 
-    else { block.classList.remove('collapsed'); icon.className = 'fa-solid fa-chevron-up'; }
-    localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
-}
-
-function toggleSubunitTick(tickKey, isChecked) {
-    userTicksData[tickKey] = isChecked;
-    localStorage.setItem(`userTicks_${currentUser.username}`, JSON.stringify(userTicksData));
-    renderNestedSyllabus(); 
-}
-
 // --- ১১. ড্রাইভ এবং লোকাল ফাইল ম্যানেজার ওপেনার ---
 function openGoogleDrive() {
     window.open("https://drive.google.com/", "_blank");
@@ -545,13 +519,15 @@ async function renderUserTable() {
     tbody.innerHTML = '<tr><td colspan="3">লোড হচ্ছে...</td></tr>';
     
     try {
-        const querySnapshot = await window.fbFirestore.getDocs(window.firebaseDoc.collection(window.firebaseDb, "users"));
+        const userColRef = window.fbFirestore.collection(window.firebaseDb, "users");
+        const querySnapshot = await window.fbFirestore.getDocs(userColRef);
         tbody.innerHTML = '';
-        querySnapshot.forEach((doc) => {
-            const u = doc.data();
-            tbody.innerHTML += `<tr><td>${u.username}</td><td>${u.role === 'admin' ? 'Admin' : 'User'}</td><td>-</td></tr>`;
+        querySnapshot.forEach((docSnap) => {
+            const u = docSnap.data();
+            tbody.innerHTML += `<tr><td>${u.username}</td><td>${u.role === 'admin' ? 'Admin' : 'User'}</td><td>${u.role !== 'admin' ? `<button class="kick-btn" onclick="deleteLiveUser('${docSnap.id}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">কিক</button>` : '-'}</td></tr>`;
         });
     } catch (e) {
+        console.error(e);
         tbody.innerHTML = '<tr><td colspan="3">তালিকা লোড করা যায়নি।</td></tr>';
     }
 }
@@ -569,7 +545,8 @@ async function addUser() {
         const userCredential = await window.fbCreateUser(window.firebaseAuth, fakeEmail, uPass);
         const newUser = userCredential.user;
 
-        await window.fbFirestore.setDoc(window.fbFirestore.doc(window.firebaseDb, "users", newUser.uid), {
+        const newUserDoc = window.fbFirestore.doc(window.firebaseDb, "users", newUser.uid);
+        await window.fbFirestore.setDoc(newUserDoc, {
             username: uName,
             role: 'user',
             uid: newUser.uid
@@ -582,5 +559,19 @@ async function addUser() {
     } catch (error) {
         console.error(error);
         alert('ইউজার তৈরি করা যায়নি! ইউজারনেমটি হয়তো আগেই ব্যবহৃত হয়েছে।');
+    }
+}
+
+async function deleteLiveUser(uid) {
+    if (confirm(`আপনি কি নিশ্চিতভাবে এই ইউজারকে ডাটাবেজ থেকে ডিলিট করতে চান?`)) {
+        try {
+            const userDocRef = window.fbFirestore.doc(window.firebaseDb, "users", uid);
+            await window.fbFirestore.deleteDoc(userDocRef);
+            alert("ইউজার ডাটাবেজ থেকে সফলভাবে রিমুভ হয়েছে।");
+            renderUserTable();
+        } catch (error) {
+            console.error(error);
+            alert("ইউজার ডিলিট করা যায়নি!");
+        }
     }
 }
