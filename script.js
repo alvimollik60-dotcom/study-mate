@@ -205,20 +205,54 @@ function showPage(pageId, element) {
     if (pageId === 'study-leaderboard-page') { renderStudyLeaderboard(); dashboardInterval = setInterval(renderStudyLeaderboard, 3000); }
     if (pageId === 'group-leaderboard-page') { renderGroupLeaderboard(); dashboardInterval = setInterval(renderGroupLeaderboard, 3000); }
     if (pageId === 'admin-page' && currentUser.role === 'admin') { renderUserTable(); renderAdminGroups(); }
+    
+    // Auto sync content metrics if syllabus updates
+    if (pageId === 'syllabus-tracker-page' || pageId === 'home-page') { loadUserData(); }
 }
 document.getElementById('menu-btn').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('hide'));
 
-// --- 7. Localized Systems Storage Data Retrieval Handlers ---
-function loadUserData() {
+// --- 7. Centralized Real-time Firestore Syllabus Sync Engines ---
+async function saveSyllabusToCloud() {
+    try {
+        if (window.fbFirestore && window.firebaseDb) {
+            const syllabusDocRef = window.fbFirestore.doc(window.firebaseDb, "settings", "global_syllabus_data");
+            await window.fbFirestore.setDoc(syllabusDocRef, { data: JSON.stringify(globalSyllabusData), updatedBy: currentUser.username, timestamp: new Date() });
+        }
+    } catch (e) { console.error("Cloud storage backup failure: ", e); }
+}
+
+async function loadUserData() {
     userDailyLogs = JSON.parse(localStorage.getItem(`userDailyLogs_${currentUser.username}`)) || {};
-    globalSyllabusData = JSON.parse(localStorage.getItem('globalSyllabusData')) || {};
-    fixedSubjects.forEach(sub => { if (!globalSyllabusData[sub]) globalSyllabusData[sub] = []; });
     userTicksData = JSON.parse(localStorage.getItem(`userTicks_${currentUser.username}`)) || {};
+
+    fixedSubjects.forEach(sub => { if (!globalSyllabusData[sub]) globalSyllabusData[sub] = []; });
+
+    // Central cloud connection hook check
+    try {
+        if (window.fbFirestore && window.firebaseDb) {
+            const syllabusDocRef = window.fbFirestore.doc(window.firebaseDb, "settings", "global_syllabus_data");
+            const syllabusSnap = await window.fbFirestore.getDoc(syllabusDocRef);
+            if (syllabusSnap.exists()) {
+                const cloudContent = syllabusSnap.data().data;
+                if (cloudContent) {
+                    globalSyllabusData = JSON.parse(cloudContent);
+                    localStorage.setItem('globalSyllabusData', cloudContent);
+                }
+            } else {
+                globalSyllabusData = JSON.parse(localStorage.getItem('globalSyllabusData')) || {};
+            }
+        }
+    } catch (e) {
+        globalSyllabusData = JSON.parse(localStorage.getItem('globalSyllabusData')) || {};
+    }
+
+    fixedSubjects.forEach(sub => { if (!globalSyllabusData[sub]) globalSyllabusData[sub] = []; });
 
     const dropdown = document.getElementById('sub-dropdown');
     if(dropdown) {
         dropdown.innerHTML = '';
         fixedSubjects.forEach(sub => dropdown.innerHTML += `<option value="${sub}">${sub}</option>`);
+        dropdown.value = currentSelectedSubject;
     }
     renderNestedSyllabus();
 }
@@ -398,7 +432,6 @@ async function renderGroupLeaderboard() {
             group.memberDetails.forEach(m => {
                 let hours = m.selfStudySeconds / 3600;
                 if (m.username === null || hours < 1) {
-                    // Less than 1 hour -> No circle/blank gap as requested
                     circlesHTML += `<div class="status-dot dot-empty"></div>`;
                 } else if (hours >= 1 && hours < 5) {
                     circlesHTML += `<div class="status-dot dot-red"></div>`;
@@ -604,22 +637,29 @@ function renderNestedSyllabus() {
 }
 function addMainChapter() {
     if (currentUser.role !== 'admin') return; const inputField = document.getElementById('new-chapter-input'); const title = inputField.value.trim(); if (title === '') return;
-    globalSyllabusData[currentSelectedSubject].push({ title: title, collapsed: false, subunits: [] }); inputField.value = ''; renderNestedSyllabus(); localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
+    globalSyllabusData[currentSelectedSubject].push({ title: title, collapsed: false, subunits: [] }); inputField.value = ''; renderNestedSyllabus(); 
+    localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
+    saveSyllabusToCloud(); // Cloud automatic real-time write logic
 }
 function deleteMainChapter(chapIndex) {
-    if (currentUser.role !== 'admin') return; if (confirm(`Remove this complete chapter partition database?`)) { globalSyllabusData[currentSelectedSubject].splice(chapIndex, 1); renderNestedSyllabus(); localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData)); }
+    if (currentUser.role !== 'admin') return; if (confirm(`Remove this complete chapter partition database?`)) { globalSyllabusData[currentSelectedSubject].splice(chapIndex, 1); renderNestedSyllabus(); localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData)); saveSyllabusToCloud(); }
 }
 function addSubunit(chapIndex) {
     if (currentUser.role !== 'admin') return; const inputField = document.getElementById(`subunit-input-${chapIndex}`); const unitName = inputField.value.trim(); if (unitName === '') return;
-    globalSyllabusData[currentSelectedSubject][chapIndex].subunits.push(unitName); inputField.value = ''; renderNestedSyllabus(); localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
+    globalSyllabusData[currentSelectedSubject][chapIndex].subunits.push(unitName); inputField.value = ''; renderNestedSyllabus(); 
+    localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
+    saveSyllabusToCloud(); // Cloud automatic real-time write logic
 }
 function deleteSubunit(chapIndex, unitIndex) {
-    if (currentUser.role !== 'admin') return; globalSyllabusData[currentSelectedSubject][chapIndex].subunits.splice(unitIndex, 1); renderNestedSyllabus(); localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
+    if (currentUser.role !== 'admin') return; globalSyllabusData[currentSelectedSubject][chapIndex].subunits.splice(unitIndex, 1); renderNestedSyllabus(); 
+    localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
+    saveSyllabusToCloud(); // Cloud automatic real-time write logic
 }
 function toggleChapter(chapIndex) {
     const isCollapsed = !globalSyllabusData[currentSelectedSubject][chapIndex].collapsed; globalSyllabusData[currentSelectedSubject][chapIndex].collapsed = isCollapsed;
     document.getElementById(`chap-block-${chapIndex}`).classList.toggle('collapsed', isCollapsed); document.getElementById(`toggle-icon-${chapIndex}`).className = isCollapsed ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-up';
     localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
+    saveSyllabusToCloud(); // Cloud update
 }
 function toggleSubunitTick(tickKey, isChecked) { userTicksData[tickKey] = isChecked; localStorage.setItem(`userTicks_${currentUser.username}`, JSON.stringify(userTicksData)); renderNestedSyllabus(); }
 function openGoogleDrive() { window.open("https://drive.google.com/", "_blank"); }
