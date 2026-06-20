@@ -40,7 +40,7 @@
             <a href="javascript:void(0);" class="sidebar-item" onclick="showPage('syllabus-tracker-page', this)"><i class="fa-solid fa-book-open"></i> সিলেবাস ট্র্যাকার</a>
             <a href="javascript:void(0);" class="sidebar-item" onclick="showPage('pdf-reader-page', this)"><i class="fa-solid fa-folder-open"></i> PDF ও স্টোরেজ</a>
             <a href="https://t.me/" target="_blank" class="sidebar-item telegram-link"><i class="fa-brands fa-telegram" style="color: #24A1DE;"></i> টেলিগ্রাম</a>
-            <a href="javascript:void(0);" class="sidebar-item admin-only" id="admin-menu-item" style="display: none !important;" onclick="showPage('admin-page', this)"><i class="fa-solid fa-user-shield"></i> অ্যাডমিন প্যানেল</a>
+            <a href="javascript:void(0);" class="sidebar-item admin-only" id="admin-menu-item" style="display: none;" onclick="showPage('admin-page', this)"><i class="fa-solid fa-user-shield"></i> অ্যাডমিন প্যানেল</a>
             <a href="javascript:void(0);" class="sidebar-item logout-link" onclick="logout()"><i class="fa-solid fa-right-from-bracket"></i> লগআউট</a>
         </div>
 
@@ -203,14 +203,14 @@
                 </div>
 
                 <div class="add-user-box" style="margin-top: 20px;">
-                    <input type="text" id="new-username" placeholder="নতুন ইউজারনেম">
-                    <input type="text" id="new-password" placeholder="পাসওয়ার্ড (কমপক্ষে ৬ সংখ্যার)">
+                    <input type="text" id="new-username" placeholder="ইউজারনেম">
+                    <input type="text" id="new-password" placeholder="পাসওয়ার্ড">
                     <button onclick="addUser()" class="theme-btn">ইউজার তৈরি করুন</button>
                 </div>
                 <div style="overflow-x: auto;">
                     <table class="user-table">
                         <thead>
-                            <tr><th>ইউজারনেম</th><th>রোল</th><th>অ্যাকশন</th></tr>
+                            <tr><th>ইউজারনেম</th><th>পাসওয়ার্ড</th><th>অ্যাকশন</th></tr>
                         </thead>
                         <tbody id="user-table-body"></tbody>
                     </table>
