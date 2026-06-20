@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Study mate</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="login-section" class="view-section active-section">
+        <div class="login-box">
+            <h2 class="theme-text">Study mate Login</h2>
+            <input type="text" id="login-username" placeholder="Username দিন">
+            <input type="password" id="login-password" placeholder="Password দিন">
+            <button onclick="login()" class="theme-btn">প্রবেশ করুন</button>
+            <p id="login-error" class="error-msg"></p>
+        </div>
+    </div>
+
+    <div id="app-section" class="view-section">
+        
+        <nav class="navbar">
+            <div class="nav-left">
+                <button class="menu-toggle" id="menu-btn"><i class="fa-solid fa-bars"></i></button>
+            </div>
+            <div class="nav-center">
+                <h1 class="logo"><span>Study</span> mate</h1>
+            </div>
+            <div class="nav-right">
+                <span id="user-display"></span>
+            </div>
+        </nav>
+
+        <div class="sidebar hide" id="sidebar">
+            <a href="javascript:void(0);" class="sidebar-item" onclick="showPage('home-page', this)"><i class="fa-solid fa-house"></i> Home (হোম)</a>
+            <a href="javascript:void(0);" class="sidebar-item" onclick="showPage('self-tracker-page', this)"><i class="fa-solid fa-stopwatch"></i> Self Tracker</a>
+            <a href="javascript:void(0);" class="sidebar-item" onclick="showPage('session-report-page', this)"><i class="fa-solid fa-chart-pie"></i> Session Report (রিপোর্ট)</a>
+            <a href="javascript:void(0);" class="sidebar-item" onclick="showPage('syllabus-tracker-page', this)"><i class="fa-solid fa-book-open"></i> Syllabus Tracker</a>
+            <a href="javascript:void(0);" class="sidebar-item" onclick="showPage('public-dashboard-page', this)"><i class="fa-solid fa-earth-americas"></i> Public Dashboard</a>
+            <a href="javascript:void(0);" class="sidebar-item" onclick="showPage('study-leaderboard-page', this)"><i class="fa-solid fa-trophy" style="color: #eab308;"></i> Study Leaderboard</a>
+            <a href="javascript:void(0);" class="sidebar-item" onclick="showPage('group-leaderboard-page', this)"><i class="fa-solid fa-users" style="color: #a855f7;"></i> Group Leaderboard</a>
+            <a href="javascript:void(0);" class="sidebar-item" onclick="showPage('pdf-reader-page', this)"><i class="fa-solid fa-folder-open"></i> PDF & Storage</a>
+            <a href="https://t.me/" target="_blank" class="sidebar-item telegram-link"><i class="fa-brands fa-telegram" style="color: #24A1DE;"></i> Telegram Group</a>
+            <a href="javascript:void(0);" class="sidebar-item admin-only" id="admin-menu-item" style="display: none;" onclick="showPage('admin-page', this)"><i class="fa-solid fa-user-shield"></i> Admin Panel</a>
+            <a href="javascript:void(0);" class="sidebar-item logout-link" onclick="logout()"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
+        </div>
+
+        <div class="container" id="main-container">
+            
+            <div id="home-page" class="page-content center-wrapper">
+                <div class="welcome-box">
+                    <h1 id="welcome-username" class="huge-username">User</h1>
+                    
+                    <div class="user-tags-container">
+                        <span class="user-tag badge-hsc">Hsc 28</span>
+                        <span class="user-tag badge-group" id="user-group-display">No Group</span>
+                    </div>
+
+                    <h2 id="welcome-message" class="theme-text">Study mate-এ আপনাকে স্বাগতম!</h2>
+                    <p style="color: #94a3b8;">বাম পাশের মেনু বাটন ব্যবহার করে আপনার পড়াশোনা এবং দৈনিক অ্যাক্টিভিটি ট্র্যাক করা শুরু করুন।</p>
+                </div>
+                
+                <div id="home-custom-notice-box" class="custom-notice-container">
+                    <p id="notice-display-text">নোটিশ লোড হচ্ছে...</p>
+                </div>
+            </div>
+
+            <div id="self-tracker-page" class="page-content center-wrapper">
+                <h2>Self Tracker</h2>
+                <p class="subtitle">আপনার বর্তমান লাইভ অ্যাক্টিভিটি সিলেক্ট করে টাইমার চালু করুন</p>
+                <main class="tracker-card">
+                    <p class="current-status">বর্তমান অবস্থা: <span id="current-activity-name">Sports</span></p>
+                    <div class="timer" id="main-timer">00:00:00</div>
+                    <button class="stop-btn theme-btn">Start Session</button>
+                    <div class="activity-grid">
+                        <div class="card" onclick="selectActivity('Self Study', this)"><i class="fa-solid fa-user-graduate icon"></i><h3>Self Study</h3><div class="time">00:00:00</div></div>
+                        <div class="card" onclick="selectActivity('Class/Mock Test', this)"><i class="fa-solid fa-laptop-code icon"></i><h3>Class/Mock Test</h3><div class="time">00:00:00</div></div>
+                        <div class="card" onclick="selectActivity('Mobile scroll', this)"><i class="fa-solid fa-mobile-screen-button icon"></i><h3>Mobile scroll</h3><div class="time">00:00:00</div></div>
+                        <div class="card" onclick="selectActivity('Prayer', this)"><i class="fa-solid fa-hands-praying icon"></i><h3>Prayer</h3><div class="time">00:00:00</div></div>
+                        <div class="card" onclick="selectActivity('Food', this)"><i class="fa-solid fa-utensils icon"></i><h3>Food</h3><div class="time">00:00:00</div></div>
+                        <div class="card" onclick="selectActivity('Sleep', this)"><i class="fa-solid fa-bed icon"></i><h3>Sleep</h3><div class="time">00:00:00</div></div>
+                        <div class="card" onclick="selectActivity('Sports', this)"><i class="fa-solid fa-person-running icon"></i><h3>Sports</h3><div class="time">00:00:00</div></div>
+                        <div class="card" onclick="selectActivity('Other', this)"><i class="fa-solid fa-briefcase icon"></i><h3>Other</h3><div class="time">00:00:00</div></div>
+                    </div>
+                </main>
+            </div>
+
+            <div id="session-report-page" class="page-content center-wrapper">
+                <h2>Session Report Dashboard</h2>
+                <p class="subtitle">ক্যালেন্ডার থেকে যেকোনো তারিখ সিলেক্ট করে ওই দিনের জমানো রিপোর্ট দেখুন</p>
+                <div class="report-layout">
+                    <div class="report-left">
+                        <div class="summary-card">
+                            <p>নির্বাচিত তারিখ: <span id="selected-date-display" style="color: var(--theme-btn-bg, #3b82f6); font-weight: bold;">-</span></p>
+                            <div class="total-usage-box">
+                                <small>মোট ব্যবহৃত সময়</small>
+                                <h2 id="report-total-time">0h 0m</h2>
+                            </div>
+                        </div>
+                        <div class="chart-container-box">
+                            <div class="donut-chart" id="report-donut-chart">
+                                <div class="donut-inner" id="donut-center-text">No Data</div>
+                            </div>
+                        </div>
+                        <div class="category-grid-report">
+                            <div class="rep-card" style="border-left: 3px solid #3b82f6;"><i class="fa-solid fa-user-graduate"></i> <span>Self Study</span> <strong id="rep-time-SelfStudy">0m</strong></div>
+                            <div class="rep-card" style="border-left: 3px solid #10b981;"><i class="fa-solid fa-laptop-code"></i> <span>Class</span> <strong id="rep-time-ClassMockTest">0m</strong></div>
+                            <div class="rep-card" style="border-left: 3px solid #f43f5e;"><i class="fa-solid fa-mobile-screen-button"></i> <span>Mobile Scroll</span> <strong id="rep-time-Mobilescroll">0m</strong></div>
+                            <div class="rep-card" style="border-left: 3px solid #eab308;"><i class="fa-solid fa-hands-praying"></i> <span>নামাজ / Prayer</span> <strong id="rep-time-Prayer">0m</strong></div>
+                            <div class="rep-card" style="border-left: 3px solid #a855f7;"><i class="fa-solid fa-utensils"></i> <span>খাবার / Food</span> <strong id="rep-time-Food">0m</strong></div>
+                            <div class="rep-card" style="border-left: 3px solid #6366f1;"><i class="fa-solid fa-bed"></i> <span>ঘুম / Sleep</span> <strong id="rep-time-Sleep">0m</strong></div>
+                            <div class="rep-card" style="border-left: 3px solid #06b6d4;"><i class="fa-solid fa-person-running"></i> <span>খেলাধুলা / Sports</span> <strong id="rep-time-Sports">0m</strong></div>
+                            <div class="rep-card" style="border-left: 3px solid #64748b;"><i class="fa-solid fa-briefcase"></i> <span>অন্যান্য / Other</span> <strong id="rep-time-Other">0m</strong></div>
+                        </div>
+                    </div>
+                    <div class="report-right">
+                        <div class="calendar-wrapper">
+                            <div class="calendar-header-nav">
+                                <button onclick="changeMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+                                <h3 id="calendar-month-year">Month Year</h3>
+                                <button onclick="changeMonth(1)"><i class="fa-solid fa-chevron-right"></i></button>
+                            </div>
+                            <div class="calendar-weekdays">
+                                <div>সোম</div><div>মঙ্গল</div><div>বুধ</div><div>বৃহঃ</div><div>শুক্র</div><div>শনি</div><div>রবি</div>
+                            </div>
+                            <div class="calendar-days" id="calendar-days-grid"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="syllabus-tracker-page" class="page-content center-wrapper">
+                <h2>Syllabus Tracker</h2>
+                <p class="subtitle">বিষয় সিলেক্ট করে চ্যাপ্টার ভিত্তিক প্রগ্রেস টিক চিহ্ন দিয়ে সেভ রাখুন</p>
+                <div class="sub-select-box">
+                    <label for="sub-dropdown">Subject: </label>
+                    <select id="sub-dropdown" onchange="selectSubject(this.value)"></select>
+                </div>
+                <div class="add-box-container admin-editable-content" id="admin-chapter-form" style="display: none;">
+                    <input type="text" id="new-chapter-input" placeholder="নতুন চ্যাপ্টারের নাম...">
+                    <button class="add-btn-main theme-btn" onclick="addMainChapter()">Add</button>
+                </div>
+                <div id="syllabus-nested-container"></div>
+            </div>
+
+            <div id="public-dashboard-page" class="page-content center-wrapper">
+                <h2 style="font-size: 2rem; font-weight: bold; margin-bottom: 25px;">বর্তমানে কে কী করছেন?</h2>
+                <div class="activity-grid" id="public-users-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 100%)); gap: 15px; width: 100%;">
+                    <p style="color: #94a3b8; text-align: center; width: 100%;">লোডিং হচ্ছে...</p>
+                </div>
+            </div>
+
+            <div id="study-leaderboard-page" class="page-content center-wrapper">
+                <h2><i class="fa-solid fa-trophy" style="color: #eab308;"></i> Study Leaderboard</h2>
+                <p class="subtitle">আজকের সর্বোচ্চ সেল্ফ স্টাডি (Self Study) করা মেম্বারদের র‍্যাংকিং তালিকা</p>
+                <div id="study-leaderboard-list-container" class="leaderboard-custom-list">
+                    <p style="color: #94a3b8; text-align: center; width: 100%;">লোডিং হচ্ছে...</p>
+                </div>
+            </div>
+
+            <div id="group-leaderboard-page" class="page-content center-wrapper">
+                <h2><i class="fa-solid fa-users" style="color: #a855f7;"></i> Group Study Leaderboard</h2>
+                <p class="subtitle">সবগুলো গ্রুপের মেম্বারদের মোট পড়াশোনার ওপর ভিত্তি করে তৈরি গ্রুপ র‍্যাংকিং</p>
+                <div id="group-leaderboard-list-container" class="leaderboard-custom-list">
+                    <p style="color: #94a3b8; text-align: center; width: 100%;">লোডিং হচ্ছে...</p>
+                </div>
+            </div>
+
+            <div id="pdf-reader-page" class="page-content center-wrapper">
+                <h2>File & Storage Sources</h2>
+                <p class="subtitle">পড়াশোনার ড্রাইভ এবং নিজের ডিভাইসের ফাইল এক্সেс করার সুবিধা</p>
+                <div class="storage-options-container">
+                    <div class="storage-button-card color-drive" onclick="openGoogleDrive()">
+                        <div class="storage-icon"><i class="fa-brands fa-google-drive"></i></div>
+                        <h3>1. Google Drive</h3>
+                        <p>সরাসরি ক্লাউড ড্রাইভ ফোল্ডার ওপেন করুন</p>
+                    </div>
+                    <div class="storage-button-card color-file" onclick="triggerLocalFilePicker()">
+                        <div class="storage-icon"><i class="fa-solid fa-folder-closed"></i></div>
+                        <h3>2. Local File</h3>
+                        <p>ডিভাইস থেকে পিডিএফ বা ইমেজ ফাইল লোড করুন</p>
+                    </div>
+                </div>
+                <input type="file" id="hidden-local-file-picker" accept="application/pdf, image/*" style="display: none;" onchange="handleLocalFileSelect(event)">
+                <div id="file-status-box" class="file-status-notification" style="display: none;"></div>
+            </div>
+
+            <div id="admin-page" class="page-content center-wrapper">
+                <h2>Admin Management Panel</h2>
+                
+                <div class="admin-setting-card" style="margin-bottom: 20px;">
+                    <h3><i class="fa-solid fa-users-gear"></i> Study Groups Management</h3>
+                    <div class="add-user-box" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px;">
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="new-group-name" placeholder="নতুন গ্রুপের নাম দিন...">
+                            <input type="text" id="new-group-logo" placeholder="গ্রুপ লোগো (যেমন: 📚, 🚀, 🎯)...">
+                        </div>
+                        <button onclick="createStudyGroup()" class="theme-btn">Create Group</button>
+                    </div>
+                    <div id="admin-groups-list-container" style="display: flex; flex-direction: column; gap: 15px;"></div>
+                </div>
+
+                <div class="admin-setting-card" style="margin-bottom: 20px;">
+                    <h3><i class="fa-solid fa-message"></i> Global Home Notice Settings</h3>
+                    <div class="settings-control-grid">
+                        <textarea id="notice-input-text" placeholder="হোম পেজের গ্লোবাল নোটিশ টেক্সট লিখুন..." rows="3" style="width: 100%; padding: 8px; background: #111827; color: #fff; border: 1px solid #334155; border-radius: 6px; margin-bottom: 10px;"></textarea>
+                        <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
+                            <label>রং: </label>
+                            <input type="color" id="notice-color-picker" value="#ffffff">
+                            <label>সাইজ (px): </label>
+                            <input type="number" id="notice-size-picker" value="16" min="12" max="40" style="width: 70px;">
+                        </div>
+                        <button onclick="saveNoticeSettings()" class="theme-btn">Update Notice</button>
+                    </div>
+                </div>
+
+                <div class="admin-setting-card" style="margin-bottom: 20px;">
+                    <h3><i class="fa-solid fa-palette"></i> Website Theme Colors</h3>
+                    <div class="theme-picker-grid">
+                        <div class="picker-item"><label>Background:</label> <input type="color" id="color-bg" value="#111827"></div>
+                        <div class="picker-item"><label>Card color:</label> <input type="color" id="color-card" value="#1e293b"></div>
+                        <div class="picker-item"><label>Button Accent:</label> <input type="color" id="color-btn" value="#3b82f6"></div>
+                        <div class="picker-item"><label>Text Color:</label> <input type="color" id="color-text" value="#ffffff"></div>
+                    </div>
+                    <button onclick="saveThemeSettings()" class="theme-btn" style="margin-top: 12px;">Apply Color Theme</button>
+                    <button onclick="resetThemeSettings()" style="margin-top: 12px; padding: 6px 15px; background: #64748b; color: white; border: none; border-radius: 4px; cursor: pointer; margin-left: 10px;">Reset Default</button>
+                </div>
+
+                <div class="admin-setting-card" style="margin-bottom: 20px;">
+                    <h3><i class="fa-solid fa-clock"></i> Day Roll-over Time Boundary</h3>
+                    <div class="time-input-group">
+                        <label for="day-start-time">কয়টার সময় নতুন দিন কাউন্ট শুরু হবে: </label>
+                        <input type="time" id="day-start-time">
+                        <button onclick="saveDayStartSetting()" class="theme-btn">Save Boundary</button>
+                    </div>
+                </div>
+
+                <div class="add-user-box" style="margin-top: 20px;">
+                    <input type="text" id="new-username" placeholder="Username">
+                    <input type="text" id="new-password" placeholder="Password">
+                    <button onclick="addUser()" class="theme-btn">Register New User</button>
+                </div>
+                <div style="overflow-x: auto; width:100%;">
+                    <table class="user-table">
+                        <thead>
+                            <tr><th>Username</th><th>Password</th><th>Action</th></tr>
+                        </thead>
+                        <tbody id="user-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDN4Yv4Ufxm6IsmpKv2ViO95_fHgZq_dgY",
+            authDomain: "study-mate-6a5ee.firebaseapp.com",
+            projectId: "study-mate-6a5ee",
+            storageBucket: "study-mate-6a5ee.firebasestorage.app",
+            messagingSenderId: "820457978978",
+            appId: "1:820457978978:web:f228f86a8a213c631ea53b",
+            measurementId: "G-TMEN94CMKR"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        window.firebaseAuth = auth;
+        window.firebaseDb = db;
+        window.fbSignIn = signInWithEmailAndPassword;
+        window.fbCreateUser = createUserWithEmailAndPassword;
+        window.fbFirestore = { doc, setDoc, getDoc, collection, getDocs, deleteDoc };
+    </script>
+
+    <script src="script.js"></script>
+</body>
+</html>

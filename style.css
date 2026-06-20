@@ -1,0 +1,339 @@
+/* রুটের ডিফল্ট ভ্যারিয়েবল (যা জাভাস্ক্রিপ্ট দিয়ে ডাইনামিকালি চেঞ্জ হবে) */
+:root {
+    --theme-bg: #111827;
+    --theme-card-bg: #1e293b;
+    --theme-btn-bg: #3b82f6;
+    --theme-text-color: #ffffff;
+}
+
+* { 
+    margin: 0; 
+    padding: 0; 
+    box-sizing: border-box; 
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+}
+body { 
+    background-color: var(--theme-bg); 
+    color: var(--theme-text-color); 
+    min-height: 100vh; 
+    overflow-x: hidden;
+    transition: background 0.3s, color 0.3s;
+}
+
+/* গ্লোবাল ডাইনামিক থিম অ্যাপ্লাই ক্লাস */
+.theme-text { color: var(--theme-btn-bg) !important; }
+.theme-btn { background-color: var(--theme-btn-bg) !important; color: white; }
+.theme-btn:hover { filter: brightness(1.2); }
+
+/* ভিউ কন্ট্রোল */
+.view-section { display: none !important; }
+.view-section.active-section#login-section { 
+    display: flex !important; justify-content: center; align-items: center; 
+    height: 100vh; width: 100vw; position: fixed; top: 0; left: 0; background-color: var(--theme-bg); z-index: 2000; padding: 20px;
+}
+.view-section.active-section#app-section { display: block !important; }
+.page-content { display: none !important; }
+.page-content.active-page { display: block !important; }
+
+/* লগইন বক্স */
+.login-box { background: var(--theme-card-bg); padding: 30px 20px; border-radius: 10px; width: 100%; max-width: 360px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+.login-box h2 { margin-bottom: 15px; }
+.login-box input { width: 100%; padding: 10px; margin-bottom: 12px; border: 1px solid #334155; border-radius: 6px; background: var(--theme-bg); color: white; font-size: 0.95rem; }
+.login-box button { width: 100%; padding: 10px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+
+/* নেভিগেশন বার লজিক - লগো এখন একদম মাঝখানে */
+#app-section { padding-top: 60px; }
+.navbar { position: fixed; top: 0; left: 0; width: 100%; height: 55px; background-color: var(--theme-card-bg); border-bottom: 1px solid #334155; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; z-index: 1000; }
+.nav-left { display: flex; align-items: center; width: 20%; }
+.nav-center { display: flex; justify-content: center; align-items: center; width: 60%; text-align: center; }
+.nav-right { display: flex; justify-content: flex-end; align-items: center; width: 20%; }
+
+.menu-toggle { background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; padding: 6px; border-radius: 50%; }
+.menu-toggle:hover { background: #334155; }
+.logo { font-size: 1.4rem; letter-spacing: 0.5px; }
+.logo span { color: var(--theme-btn-bg); }
+#user-display { background: #334155; padding: 4px 12px; border-radius: 12px; font-size: 0.8rem; white-space: nowrap; }
+
+/* সাইডবার */
+.sidebar { position: fixed; top: 55px; left: 0; width: 230px; height: calc(100vh - 55px); background-color: var(--theme-card-bg); border-right: 1px solid #334155; padding-top: 15px; transition: transform 0.25s ease; z-index: 999; transform: translateX(0); }
+.sidebar.hide { transform: translateX(-230px) !important; }
+.sidebar-item { display: flex; align-items: center; gap: 12px; padding: 10px 20px; color: #cbd5e1; text-decoration: none; font-size: 0.95rem; transition: 0.2s; }
+.sidebar-item:hover, .active-nav { background-color: #334155; color: var(--theme-btn-bg); }
+.logout-link { color: #ef4444; margin-top: 15px; border-top: 1px solid #334155; padding-top: 15px; }
+
+/* হোম পেজ কাস্টম নোটিশ বক্স স্টাইল */
+.custom-notice-container { background: var(--theme-card-bg); border: 1px dashed var(--theme-btn-bg); padding: 25px; border-radius: 8px; margin-top: 20px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+
+/* কন্টেইনার লেআউট */
+.container { max-width: 1000px; margin: 15px auto; padding: 0 15px; transition: padding-left 0.25s ease; }
+
+@media (min-width: 992px) {
+    body:not(.sidebar-hidden) .container { padding-left: 230px; margin-left: auto; margin-right: auto; }
+}
+@media (max-width: 991px) {
+    .sidebar { transform: translateX(-230px); }
+    .sidebar:not(.hide) { transform: translateX(0) !important; }
+    body:not(.sidebar-hidden) .container { padding-left: 0; }
+}
+
+/* কার্ডস এবং অন্যান্য কন্টেন্ট */
+.welcome-box { text-align: center; margin-top: 15px; background: var(--theme-card-bg); padding: 35px 20px; border-radius: 10px; border: 1px solid #334155; }
+.huge-username { font-size: 2.8rem; font-weight: 800; color: var(--theme-btn-bg); margin-bottom: 5px; text-transform: capitalize; }
+.subtitle { color: #9ca3af; font-size: 0.95rem; margin-bottom: 15px; text-align: center; }
+.tracker-card { background: var(--theme-card-bg); padding: 15px; border-radius: 10px; text-align: center; border: 1px solid #334155; margin-bottom: 20px; }
+.current-status { font-size: 1rem; color: #94a3b8; }
+.current-status span { color: var(--theme-btn-bg); font-weight: bold; }
+.timer { font-size: 2.5rem; font-weight: bold; margin: 12px 0; }
+.stop-btn { border: none; padding: 8px 25px; border-radius: 20px; font-weight: bold; cursor: pointer; margin-bottom: 20px; font-size: 0.95rem; }
+
+/* হোম পেজের নামের নিচের ২টা সুন্দর ব্যাজ */
+.user-tags-container { display: flex; justify-content: center; gap: 12px; margin: -10px 0 20px 0; }
+.user-tag { padding: 5px 14px; border-radius: 20px; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; }
+.badge-hsc { background: linear-gradient(135deg, #ec4899, #f43f5e); color: #ffffff; }
+.badge-group { background: linear-gradient(135deg, #3b82f6, #06b6d4); color: #ffffff; }
+
+/* একটিভিটি গ্রিড */
+.activity-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; width: 100%; }
+.card { background: var(--theme-bg); padding: 12px 8px; border-radius: 6px; cursor: pointer; border: 1px solid #1e293b; text-align: center; transition: 0.2s; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+.card .icon { font-size: 1.2rem; margin-bottom: 5px; color: #cbd5e1; }
+.card h3 { font-size: 0.85rem; color: #cbd5e1; margin-bottom: 5px; }
+.card .time { font-size: 0.75rem; color: #64748b; border-top: 1px solid #1e293b; padding-top: 4px; width: 100%; }
+.card.active { background: #f43f5e !important; border-color: #f43f5e; }
+
+/* সেশন রিপোর্ট */
+.report-layout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 15px; margin-top: 10px; align-items: start; }
+.report-left, .report-right { display: flex; flex-direction: column; gap: 15px; width: 100%; }
+.summary-card { background: var(--theme-card-bg); padding: 12px 15px; border-radius: 8px; border: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; }
+.total-usage-box { text-align: right; background: #ef4444; padding: 6px 15px; border-radius: 6px; }
+.total-usage-box small { color: #ffe4e6; font-size: 0.7rem; }
+.total-usage-box h2 { font-size: 1.3rem; font-weight: bold; }
+.chart-container-box { background: var(--theme-card-bg); border: 1px solid #334155; padding: 15px; border-radius: 8px; display: flex; justify-content: center; align-items: center; }
+.donut-chart { width: 140px; height: 140px; border-radius: 50%; background: conic-gradient(#334155 0% 100%); display: flex; justify-content: center; align-items: center; position: relative; }
+.donut-inner { width: 95px; height: 95px; background: var(--theme-card-bg); border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 0.8rem; color: #94a3b8; text-align: center; }
+.category-grid-report { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.rep-card { background: var(--theme-card-bg); padding: 10px 12px; border-radius: 6px; border: 1px solid #334155; display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; }
+
+/* ক্যালেন্ডার */
+.calendar-wrapper { background: var(--theme-card-bg); border: 1px solid #334155; border-radius: 8px; padding: 15px; width: 100%; }
+.calendar-header-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 0.9rem; }
+.calendar-header-nav button { background: var(--theme-bg); border: 1px solid #334155; color: white; width: 28px; height: 28px; border-radius: 4px; cursor: pointer; }
+.calendar-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; color: #64748b; font-weight: bold; font-size: 0.75rem; margin-bottom: 8px; }
+.calendar-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; text-align: center; }
+.calendar-days div { padding: 8px 0; border-radius: 4px; background: var(--theme-bg); border: 1px solid #1e293b; font-size: 0.8rem; cursor: pointer; }
+.calendar-days div.active-date { background: #ef4444 !important; border-color: #ef4444; font-weight: bold; }
+.calendar-days div.has-data { border-color: #10b981; background: #13251e; }
+.calendar-days div.empty-cell { background: transparent; border: none; cursor: default; }
+
+/* সিলেবাস ট্র্যাকার */
+.sub-select-box { background: var(--theme-card-bg); padding: 10px; border-radius: 6px; border: 1px solid #334155; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+.sub-select-box select { padding: 6px; background: var(--theme-bg); color: white; border: 1px solid #334155; border-radius: 4px; flex: 1; }
+.add-box-container { display: flex; gap: 8px; margin-bottom: 12px; }
+.add-box-container input { flex: 1; padding: 8px; background: var(--theme-card-bg); border: 1px solid #334155; color: white; border-radius: 4px; }
+.add-btn-main { padding: 8px 15px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+.chapter-block { background: var(--theme-card-bg); border: 1px solid #334155; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+.chapter-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 6px; margin-bottom: 10px; }
+.chapter-title { font-size: 1rem; color: var(--theme-btn-bg); font-weight: bold; }
+.chapter-block.collapsed .subunit-container, .chapter-block.collapsed .add-subunit-form { display: none !important; }
+.subunit-container { background: var(--theme-bg); border-radius: 6px; padding: 6px 12px; }
+.subunit-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #1e293b; font-size: 0.85rem; }
+.subunit-left { display: flex; align-items: center; gap: 10px; }
+.subunit-left input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
+.subunit-item.completed span { text-decoration: line-through; color: #64748b; }
+.add-subunit-form { display: flex; gap: 6px; margin-top: 8px; }
+.add-subunit-form input { flex: 1; padding: 6px; background: var(--theme-card-bg); border: 1px solid #475569; color: white; border-radius: 4px; }
+.add-subunit-form button { padding: 6px 12px; background: #10b981; border: none; color: white; border-radius: 4px; font-weight: bold; }
+.delete-btn-icon { background: none; border: none; color: #ef4444; cursor: pointer; }
+
+/* পিডিএফ এবং স্টোরেজ সোর্স */
+.storage-options-container { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-top: 15px; }
+.storage-button-card { background: var(--theme-card-bg); border: 1px solid #334155; padding: 25px 15px; border-radius: 10px; text-align: center; cursor: pointer; transition: transform 0.2s; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+.storage-button-card:hover { transform: translateY(-3px); }
+.storage-icon { font-size: 2.2rem; }
+.color-drive .storage-icon { color: #34a853; }
+.color-drive:hover { border-color: #34a853; }
+.color-file .storage-icon { color: #eab308; }
+.color-file:hover { border-color: #eab308; }
+.file-status-notification { margin-top: 20px; padding: 12px; border-radius: 6px; background: var(--theme-bg); border-left: 4px solid #10b981; font-size: 0.85rem; text-align: center; }
+
+/* থিম এডিটর গ্রিড */
+.admin-setting-card { background: var(--theme-card-bg); border: 1px solid #334155; padding: 15px; border-radius: 8px; }
+.theme-picker-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 10px; }
+.picker-item { display: flex; justify-content: space-between; align-items: center; background: var(--theme-bg); padding: 8px; border-radius: 6px; border: 1px solid #334155; font-size: 0.85rem; }
+.picker-item input[type="color"] { border: none; width: 35px; height: 25px; border-radius: 4px; cursor: pointer; background: transparent; }
+
+.time-input-group { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; font-size: 0.9rem; }
+.time-input-group input[type="time"] { padding: 6px; background: var(--theme-bg); color: white; border: 1px solid #334155; border-radius: 4px; }
+.add-user-box { display: flex; gap: 8px; }
+.add-user-box input { flex: 1; padding: 8px; background: var(--theme-card-bg); border: 1px solid #334155; color: white; border-radius: 4px; }
+.user-table { width: 100%; border-collapse: collapse; margin-top: 15px; background: var(--theme-card-bg); font-size: 0.85rem; }
+.user-table th, .user-table td { padding: 10px; border: 1px solid #334155; text-align: left; }
+.user-table th { background: #334155; }
+.kick-btn { background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+
+
+/* ==========================================================================
+   2 NO SHOBI (Screenshot 2026-06-20 161507.png) ANUJAYI PUBLIC DASHBOARD DESIGN
+   (Chipchip, ultra-clean, exact compact layout adjustments)
+   ========================================================================== */
+#public-dashboard-section .leaderboard-custom-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px !important; /* Ekdom chipchip gap-free alignment */
+    margin-top: 10px;
+}
+
+#public-dashboard-section .custom-row-card {
+    background: var(--theme-card-bg);
+    border: 1px solid #334155;
+    padding: 8px 12px !important; /* Super clean text box compact padding */
+    border-radius: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+#public-dashboard-section .rank-badge-item {
+    font-size: 0.9rem !important;
+    font-weight: bold;
+    color: #94a3b8;
+    min-width: 20px;
+    text-align: center;
+}
+
+#public-dashboard-section .profile-main-title {
+    font-size: 0.88rem !important; /* Inline dynamic micro styling */
+    font-weight: bold;
+    color: var(--theme-text-color);
+}
+
+#public-dashboard-section .profile-sub-tag {
+    font-size: 0.72rem !important;
+    color: #94a3b8;
+}
+
+#public-dashboard-section .card-right-metrics {
+    font-size: 0.9rem !important;
+    font-weight: bold;
+    color: var(--theme-btn-bg);
+}
+
+
+/* ==========================================================================
+   1 NO SHOBI (Screenshot 2026-06-20 161827.png) ANUJAYI STUDY & GROUP LEADERBOARD DESIGN
+   (Proper spacing from header/top navigation bar, clean separated margins)
+   ========================================================================== */
+#study-leaderboard-section, 
+#group-leaderboard-section {
+    padding-top: 25px !important; /* Mathay lagano thakbe na, properly niche push kora */
+    margin-top: 15px !important;
+}
+
+#study-leaderboard-section .leaderboard-custom-list,
+#group-leaderboard-section .leaderboard-custom-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 20px !important; /* Beautiful block style separated margins */
+}
+
+#study-leaderboard-section .custom-row-card,
+#group-leaderboard-section .custom-row-card {
+    background: var(--theme-card-bg);
+    border: 1px solid #334155;
+    padding: 12px 16px;
+    border-radius: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+#study-leaderboard-section .rank-badge-item,
+#group-leaderboard-section .rank-badge-item {
+    font-size: 1rem;
+    font-weight: bold;
+    color: #94a3b8;
+}
+
+#study-leaderboard-section .profile-main-title,
+#group-leaderboard-section .profile-main-title {
+    font-size: 0.95rem;
+    font-weight: bold;
+}
+
+
+/* --- Shared Elements for Leaderboards --- */
+.card-left-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.group-logo-avatar {
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.meta-profile-details {
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+}
+
+.card-right-flex-container {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.card-right-metrics {
+    font-size: 0.95rem;
+    font-weight: bold;
+    min-width: 65px;
+    text-align: right;
+}
+
+.study-highlight { color: var(--theme-btn-bg); }
+.group-highlight { color: #10b981; }
+
+/* --- Group Member Study Status Circle Dots --- */
+.member-dots-row {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.dot-empty { width: 0px; height: 0px; background: transparent; }
+.dot-red { background-color: #ef4444; }
+.dot-yellow { background-color: #eab308; }
+.dot-green { background-color: #10b981; }
+
+
+/* পিওর রেসপন্সিভ মোবাইল মোড */
+@media (max-width: 768px) {
+    .report-layout { grid-template-columns: 1fr; }
+    .activity-grid { grid-template-columns: repeat(2, 1fr); }
+    .storage-options-container { grid-template-columns: 1fr; }
+    .theme-picker-grid { grid-template-columns: 1fr; }
+    .logo { font-size: 1.1rem; }
+    .timer { font-size: 2rem; }
+    .huge-username { font-size: 2.2rem; }
+    .add-user-box { flex-direction: column; }
+    
+    /* Mobile-e layouts alignment safe text grid */
+    .custom-row-card { padding: 10px 12px; }
+    .profile-main-title { font-size: 0.85rem; }
+    .card-right-metrics { font-size: 0.85rem; min-width: auto; }
+}
