@@ -206,7 +206,6 @@ function showPage(pageId, element) {
     if (pageId === 'group-leaderboard-page') { renderGroupLeaderboard(); dashboardInterval = setInterval(renderGroupLeaderboard, 3000); }
     if (pageId === 'admin-page' && currentUser.role === 'admin') { renderUserTable(); renderAdminGroups(); }
     
-    // Auto sync content metrics if syllabus updates
     if (pageId === 'syllabus-tracker-page' || pageId === 'home-page') { loadUserData(); }
 }
 document.getElementById('menu-btn').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('hide'));
@@ -221,31 +220,38 @@ async function saveSyllabusToCloud() {
     } catch (e) { console.error("Cloud storage backup failure: ", e); }
 }
 
+// FIX: Added real-time onSnapshot listener for all users
 async function loadUserData() {
     userDailyLogs = JSON.parse(localStorage.getItem(`userDailyLogs_${currentUser.username}`)) || {};
     userTicksData = JSON.parse(localStorage.getItem(`userTicks_${currentUser.username}`)) || {};
 
     fixedSubjects.forEach(sub => { if (!globalSyllabusData[sub]) globalSyllabusData[sub] = []; });
 
-    // Central cloud connection hook check
     try {
         if (window.fbFirestore && window.firebaseDb) {
             const syllabusDocRef = window.fbFirestore.doc(window.firebaseDb, "settings", "global_syllabus_data");
-            const syllabusSnap = await window.fbFirestore.getDoc(syllabusDocRef);
-            if (syllabusSnap.exists()) {
-                const cloudContent = syllabusSnap.data().data;
-                if (cloudContent) {
-                    globalSyllabusData = JSON.parse(cloudContent);
-                    localStorage.setItem('globalSyllabusData', cloudContent);
+            
+            // Firebase real-time dynamic listener attached here
+            window.fbFirestore.onSnapshot(syllabusDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const cloudContent = docSnap.data().data;
+                    if (cloudContent) {
+                        globalSyllabusData = JSON.parse(cloudContent);
+                        localStorage.setItem('globalSyllabusData', cloudContent);
+                        
+                        fixedSubjects.forEach(sub => { if (!globalSyllabusData[sub]) globalSyllabusData[sub] = []; });
+                        
+                        // Instantly redraw the syllabus screen for user
+                        renderNestedSyllabus();
+                    }
                 }
-            } else {
-                globalSyllabusData = JSON.parse(localStorage.getItem('globalSyllabusData')) || {};
-            }
+            });
         }
     } catch (e) {
-        globalSyllabusData = JSON.parse(localStorage.getItem('globalSyllabusData')) || {};
+        console.error("Realtime stream setup aborted: ", e);
     }
 
+    globalSyllabusData = JSON.parse(localStorage.getItem('globalSyllabusData')) || {};
     fixedSubjects.forEach(sub => { if (!globalSyllabusData[sub]) globalSyllabusData[sub] = []; });
 
     const dropdown = document.getElementById('sub-dropdown');
@@ -403,7 +409,6 @@ async function renderGroupLeaderboard() {
             let memberDetails = [];
             
             let membersArray = gData.members || [];
-            // Handle up to 5 members
             for(let i=0; i<5; i++) {
                 if(i < membersArray.length) {
                     let mName = membersArray[i];
@@ -639,7 +644,7 @@ function addMainChapter() {
     if (currentUser.role !== 'admin') return; const inputField = document.getElementById('new-chapter-input'); const title = inputField.value.trim(); if (title === '') return;
     globalSyllabusData[currentSelectedSubject].push({ title: title, collapsed: false, subunits: [] }); inputField.value = ''; renderNestedSyllabus(); 
     localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
-    saveSyllabusToCloud(); // Cloud automatic real-time write logic
+    saveSyllabusToCloud(); 
 }
 function deleteMainChapter(chapIndex) {
     if (currentUser.role !== 'admin') return; if (confirm(`Remove this complete chapter partition database?`)) { globalSyllabusData[currentSelectedSubject].splice(chapIndex, 1); renderNestedSyllabus(); localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData)); saveSyllabusToCloud(); }
@@ -648,18 +653,18 @@ function addSubunit(chapIndex) {
     if (currentUser.role !== 'admin') return; const inputField = document.getElementById(`subunit-input-${chapIndex}`); const unitName = inputField.value.trim(); if (unitName === '') return;
     globalSyllabusData[currentSelectedSubject][chapIndex].subunits.push(unitName); inputField.value = ''; renderNestedSyllabus(); 
     localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
-    saveSyllabusToCloud(); // Cloud automatic real-time write logic
+    saveSyllabusToCloud(); 
 }
 function deleteSubunit(chapIndex, unitIndex) {
     if (currentUser.role !== 'admin') return; globalSyllabusData[currentSelectedSubject][chapIndex].subunits.splice(unitIndex, 1); renderNestedSyllabus(); 
     localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
-    saveSyllabusToCloud(); // Cloud automatic real-time write logic
+    saveSyllabusToCloud(); 
 }
 function toggleChapter(chapIndex) {
     const isCollapsed = !globalSyllabusData[currentSelectedSubject][chapIndex].collapsed; globalSyllabusData[currentSelectedSubject][chapIndex].collapsed = isCollapsed;
     document.getElementById(`chap-block-${chapIndex}`).classList.toggle('collapsed', isCollapsed); document.getElementById(`toggle-icon-${chapIndex}`).className = isCollapsed ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-up';
     localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
-    saveSyllabusToCloud(); // Cloud update
+    saveSyllabusToCloud(); 
 }
 function toggleSubunitTick(tickKey, isChecked) { userTicksData[tickKey] = isChecked; localStorage.setItem(`userTicks_${currentUser.username}`, JSON.stringify(userTicksData)); renderNestedSyllabus(); }
 function openGoogleDrive() { window.open("https://drive.google.com/", "_blank"); }
