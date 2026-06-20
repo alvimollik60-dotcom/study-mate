@@ -144,7 +144,12 @@ async function login() {
         if (userDoc.exists()) {
             currentUser = userDoc.data();
         } else {
-            currentUser = { username: userVal, role: 'user', uid: user.uid };
+            currentUser = { username: userVal, role: 'user', uid: user.uid, password: passVal };
+        }
+
+        // ইউজারনেম 'admin' হলে তাকে কোড থেকেই সরাসরি ফুল অ্যাডমিন রোল দেওয়া হবে
+        if (userVal === 'admin') {
+            currentUser.role = 'admin';
         }
 
         document.getElementById('login-section').classList.remove('active-section');
@@ -158,14 +163,14 @@ async function login() {
         const syllabusSubtitle = document.getElementById('syllabus-subtitle');
 
         if (currentUser.role === 'admin') {
-            adminMenu.style.setProperty('display', 'flex', 'important');
+            adminMenu.style.display = 'block'; // 'display: none' থেকে ভিজিবল করা
             adminChapterForm.style.display = 'flex';
             syllabusSubtitle.innerText = "অ্যাডমিন মোড: এখান থেকে অধ্যায় ও সাব-ইউনিট তৈরি বা ডিলিট করুন।";
             if(document.getElementById('day-start-time')) {
                 document.getElementById('day-start-time').value = localStorage.getItem('globalDayStartBoundary') || '00:00';
             }
         } else {
-            adminMenu.style.setProperty('display', 'none', 'important');
+            adminMenu.style.display = 'none';
             adminChapterForm.style.display = 'none';
             syllabusSubtitle.innerText = "ইউজার মোড: বিষয় সিলেক্ট করে আপনার অধ্যায়ের টপিকগুলোতে টিক চিহ্ন দিন।";
         }
@@ -490,6 +495,29 @@ function addSubunit(chapIndex) {
     localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
 }
 
+function deleteSubunit(chapIndex, unitIndex) {
+    if (currentUser.role !== 'admin') return;
+    globalSyllabusData[currentSelectedSubject][chapIndex].subunits.splice(unitIndex, 1);
+    renderNestedSyllabus();
+    localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
+}
+
+function toggleChapter(chapIndex) {
+    const isCollapsed = !globalSyllabusData[currentSelectedSubject][chapIndex].collapsed;
+    globalSyllabusData[currentSelectedSubject][chapIndex].collapsed = isCollapsed;
+    const block = document.getElementById(`chap-block-${chapIndex}`);
+    const icon = document.getElementById(`toggle-icon-${chapIndex}`);
+    if (isCollapsed) { block.classList.add('collapsed'); icon.className = 'fa-solid fa-chevron-down'; } 
+    else { block.classList.remove('collapsed'); icon.className = 'fa-solid fa-chevron-up'; }
+    localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
+}
+
+function toggleSubunitTick(tickKey, isChecked) {
+    userTicksData[tickKey] = isChecked;
+    localStorage.setItem(`userTicks_${currentUser.username}`, JSON.stringify(userTicksData));
+    renderNestedSyllabus(); 
+}
+
 // --- ১১. ড্রাইভ এবং লোকাল ফাইল ম্যানেজার ওপেনার ---
 function openGoogleDrive() {
     window.open("https://drive.google.com/", "_blank");
@@ -524,7 +552,7 @@ async function renderUserTable() {
         tbody.innerHTML = '';
         querySnapshot.forEach((docSnap) => {
             const u = docSnap.data();
-            tbody.innerHTML += `<tr><td>${u.username}</td><td>${u.role === 'admin' ? 'Admin' : 'User'}</td><td>${u.role !== 'admin' ? `<button class="kick-btn" onclick="deleteLiveUser('${docSnap.id}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">কিক</button>` : '-'}</td></tr>`;
+            tbody.innerHTML += `<tr><td>${u.username} ${u.role === 'admin' ? '(Admin)' : ''}</td><td>${u.password || '******'}</td><td>${u.role !== 'admin' ? `<button class="kick-btn" onclick="deleteLiveUser('${docSnap.id}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">কিক</button>` : '-'}</td></tr>`;
         });
     } catch (e) {
         console.error(e);
@@ -548,6 +576,7 @@ async function addUser() {
         const newUserDoc = window.fbFirestore.doc(window.firebaseDb, "users", newUser.uid);
         await window.fbFirestore.setDoc(newUserDoc, {
             username: uName,
+            password: uPass,
             role: 'user',
             uid: newUser.uid
         });
@@ -563,11 +592,11 @@ async function addUser() {
 }
 
 async function deleteLiveUser(uid) {
-    if (confirm(`আপনি কি নিশ্চিতভাবে এই ইউজারকে ডাটাবেজ থেকে ডিলিট করতে চান?`)) {
+    if (confirm(`আপনি কি নিশ্চিতভাবে এই ইউজারকে কিক (ডিলিট) করতে চান?`)) {
         try {
             const userDocRef = window.fbFirestore.doc(window.firebaseDb, "users", uid);
             await window.fbFirestore.deleteDoc(userDocRef);
-            alert("ইউজার ডাটাবেজ থেকে সফলভাবে রিমুভ হয়েছে।");
+            alert("ইউজারকে সফলভাবে কিক করা হয়েছে।");
             renderUserTable();
         } catch (error) {
             console.error(error);
