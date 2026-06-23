@@ -1,13 +1,31 @@
-// --- 1. Initialization and System Default Configs ---
+// --- ১. ইনিশিয়ালাইজেশন এবং ডিফল্ট সেটিংস ---
 if (!localStorage.getItem('globalDayStartBoundary')) {
     localStorage.setItem('globalDayStartBoundary', '00:00'); 
 }
 
 let currentUser = null;
-let currentActivity = 'Sports';
+let currentActivity = 'Self Study'; 
 let isRunning = false;
 let timerInterval = null;
-let dashboardInterval = null; 
+
+// --- সাবজেক্ট ওয়াইজ ট্র্যাকার ও পোমোডোরো ভ্যারিয়েবলস ---
+let isSubjectTimerRunning = false;
+let subjectTimerInterval = null;
+let currentTrackingSubject = '';
+let userSubjectDailyLogs = {}; 
+
+let isPomodoroRunning = false;
+let pomodoroInterval = null;
+let pomodoroRemainingSeconds = 1500; 
+
+// --- ২ ঘণ্টা অটো-অফ এবং সেশন লিমিট ভ্যারিয়েবলস (ফিক্সড) ---
+let mainTimerSessionSeconds = 0;    
+let subjectTimerSessionSeconds = 0; 
+let pomodoroSessionSeconds = 0;    
+
+// --- সাবজেক্ট ভিত্তিক হিডেন লিংক রিসোর্স ভ্যারিয়েবলস ---
+let globalSubjectResources = {}; 
+let activeResourceSubject = '';
 
 let calendarCurrentDate = new Date(); 
 let selectedReportDateStr = ''; 
@@ -22,13 +40,46 @@ let currentSelectedSubject = fixedSubjects[0];
 let globalSyllabusData = {}; 
 let userTicksData = {}; 
 let userDailyLogs = {}; 
+let globalDynamicLinks = []; 
+
+// --- ওয়েব ওয়ার্কার ইনিশিয়ালাইজেশন ---
+let myWorker = null;
+if (window.Worker) {
+    try {
+        myWorker = new Worker('timer-worker.js');
+    } catch(e) {
+        console.log("Worker initialization deferred or failing locally:", e);
+    }
+}
 
 window.addEventListener('DOMContentLoaded', () => {
     applySavedTheme();
     loadNoticeSettingsDisplay();
+    setTimeout(() => {
+        initFirebaseGlobalListeners();
+    }, 2500);
 });
 
-// --- 2. Custom UI Theme Management CSS Variables Hook ---
+// --- ব্রাউজার ট্যাব বন্ধ বা রিফ্রেশ করলে অফলাইন করার ক্রুশিয়াল লজিক ---
+window.addEventListener('beforeunload', () => {
+    if (myWorker) myWorker.postMessage('stop');
+    if (isRunning) clearInterval(timerInterval);
+    if (isSubjectTimerRunning) clearInterval(subjectTimerInterval);
+
+    if (currentUser && window.fbFirestore && window.firebaseDb) {
+        const todayStr = getLogicalDateString();
+        const liveDocRef = window.fbFirestore.doc(window.firebaseDb, "liveActivity", currentUser.username);
+        
+        window.fbFirestore.setDoc(liveDocRef, {
+            [todayStr]: {
+                'currentStatus': 'অফলাইন / বের হয়ে গেছেন',
+                'lastActive': new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }
+        }, { merge: true });
+    }
+});
+
+// --- ২. থিম ইঞ্জিন কালার প্রোভাইডার লজিক ---
 function applySavedTheme() {
     const bg = localStorage.getItem('theme_color_bg') || '#111827';
     const card = localStorage.getItem('theme_color_card') || '#1e293b';
@@ -39,269 +90,470 @@ function applySavedTheme() {
     document.documentElement.style.setProperty('--theme-card-bg', card);
     document.documentElement.style.setProperty('--theme-btn-bg', btn);
     document.documentElement.style.setProperty('--theme-text-color', text);
-
-    if(document.getElementById('color-bg')) {
-        document.getElementById('color-bg').value = bg;
-        document.getElementById('color-card').value = card;
-        document.getElementById('color-btn').value = btn;
-        document.getElementById('color-text').value = text;
-    }
 }
 
 function saveThemeSettings() {
-    if (currentUser.role !== 'admin') return;
+    if (!currentUser || currentUser.role !== 'admin') return; 
     localStorage.setItem('theme_color_bg', document.getElementById('color-bg').value);
     localStorage.setItem('theme_color_card', document.getElementById('color-card').value);
     localStorage.setItem('theme_color_btn', document.getElementById('color-btn').value);
     localStorage.setItem('theme_color_text', document.getElementById('color-text').value);
     applySavedTheme();
-    alert('System interface themes updated successfully!');
+    alert('থিম সেটিংস সফলভাবে আপডেট করা হয়েছে!');
 }
 
-function resetThemeSettings() {
-    if (currentUser.role !== 'admin') return;
-    localStorage.removeItem('theme_color_bg');
-    localStorage.removeItem('theme_color_card');
-    localStorage.removeItem('theme_color_btn');
-    localStorage.removeItem('theme_color_text');
-    applySavedTheme();
-    alert('Default systemic colors successfully re-established.');
-}
-
-// --- 3. Live Global Notice Components ---
+// --- ৩. নোটিশ ক্লাউড সিঙ্ক লজিক ---
 async function loadNoticeSettingsDisplay() {
-    let text = 'Welcome to the dashboard notice sector.';
-    let color = '#ffffff';
-    let size = '16';
+    let defaultText = 'Study mate অ্যাপে আপনাকে স্বাগত। আপনার পড়াশোনার গোল সেট করুন এবং ট্র্যাকিং শুরু করুন।';
+    let defaultColor = '#ffffff';
+    let defaultSize = '16';
 
     try {
         if (window.fbFirestore && window.firebaseDb) {
-            const noticeDocRef = window.fbFirestore.doc(window.firebaseDb, "settings", "global_notice");
-            const noticeSnap = await window.fbFirestore.getDoc(noticeDocRef);
+            const noticeSnap = await window.fbFirestore.getDoc(window.fbFirestore.doc(window.firebaseDb, "settings", "global_notice"));
             if (noticeSnap.exists()) {
                 const data = noticeSnap.data();
-                text = data.text || text;
-                color = data.color || color;
-                size = data.size || size;
+                defaultText = data.text || defaultText;
+                defaultColor = data.color || defaultColor;
+                defaultSize = data.size || defaultSize;
             }
         }
     } catch (e) {
-        text = localStorage.getItem('notice_text') || text;
-        color = localStorage.getItem('notice_color') || color;
-        size = localStorage.getItem('notice_size') || size;
+        console.error("Notice fetch fail:", e);
     }
 
-    const displayBox = document.getElementById('notice-display-text');
-    if (displayBox) {
-        displayBox.innerText = text;
-        displayBox.style.color = color;
-        displayBox.style.fontSize = size + 'px';
+    const targetEl = document.getElementById('notice-display-text');
+    if (targetEl) {
+        targetEl.innerText = defaultText;
+        targetEl.style.color = defaultColor;
+        targetEl.style.fontSize = defaultSize + 'px';
     }
 }
 
 async function saveNoticeSettings() {
-    if (currentUser.role !== 'admin') return;
-    const textVal = document.getElementById('notice-input-text').value;
-    const colorVal = document.getElementById('notice-color-picker').value;
-    const sizeVal = document.getElementById('notice-size-picker').value;
-
+    if (!currentUser || currentUser.role !== 'admin') return; 
     try {
-        const noticeDocRef = window.fbFirestore.doc(window.firebaseDb, "settings", "global_notice");
-        await window.fbFirestore.setDoc(noticeDocRef, { text: textVal, color: colorVal, size: sizeVal, updatedAt: new Date() });
-        await loadNoticeSettingsDisplay();
-        alert('Live banner announcement synchronized successfully!');
-    } catch (error) { alert('Failed synchronization with Firebase Firestore Database!'); }
+        await window.fbFirestore.setDoc(window.fbFirestore.doc(window.firebaseDb, "settings", "global_notice"), {
+            text: document.getElementById('notice-input-text').value,
+            color: document.getElementById('notice-color-picker').value,
+            size: document.getElementById('notice-size-picker').value,
+            updatedAt: new Date()
+        });
+        loadNoticeSettingsDisplay();
+        alert('কাস্টম নোটিশ বক্স সফলভাবে আপডেট হয়েছে!');
+    } catch (error) {
+        console.error("Notice save error:", error);
+    }
 }
 
-// --- 4. Logic Control for Calendar Day Bound Boundary Handling ---
+// --- ৪. ফায়ারবেস ক্লাউড গ্লোবাল রিয়েল-টাইম লিসেনারস ---
+function initFirebaseGlobalListeners() {
+    if(!window.fbFirestore || !window.firebaseDb) return;
+
+    window.fbFirestore.onSnapshot(window.fbFirestore.doc(window.firebaseDb, "syllabusData", "global_syllabus"), (docSnap) => {
+        if (docSnap.exists()) {
+            globalSyllabusData = docSnap.data();
+        } else {
+            globalSyllabusData = {};
+        }
+        fixedSubjects.forEach(sub => {
+            if (!globalSyllabusData[sub]) globalSyllabusData[sub] = [];
+        });
+        renderNestedSyllabus();
+    });
+
+    window.fbFirestore.onSnapshot(window.fbFirestore.doc(window.firebaseDb, "settings", "daily_task"), (docSnap) => {
+        const taskBox = document.getElementById('daily-task-display-box');
+        if(taskBox) {
+            if(docSnap.exists() && docSnap.data().text) {
+                taskBox.innerText = docSnap.data().text;
+            } else {
+                taskBox.innerText = "আজকের জন্য কোনো রুটিন বা টাস্ক সেট করা হয়নি।";
+            }
+        }
+    });
+
+    window.fbFirestore.onSnapshot(window.fbFirestore.collection(window.firebaseDb, "liveActivity"), (querySnapshot) => {
+        let leaderboardArray = [];
+        const currentTodayStr = getLogicalDateString();
+
+        querySnapshot.forEach((doc) => {
+            const username = doc.id;
+            const userDataMap = doc.data();
+            let totalStudySeconds = 0;
+
+            if (userDataMap && userDataMap[currentTodayStr]) {
+                const selfStudyTime = userDataMap[currentTodayStr]['Self Study'] || 0;
+                const classTime = userDataMap[currentTodayStr]['Class/Mock Test'] || 0;
+                totalStudySeconds = selfStudyTime + classTime;
+            }
+            leaderboardArray.push({ username: username, studyTime: totalStudySeconds });
+        });
+
+        leaderboardArray.sort((a, b) => b.studyTime - a.studyTime);
+        buildLeaderboardUI(leaderboardArray);
+    });
+
+    window.fbFirestore.onSnapshot(window.fbFirestore.doc(window.firebaseDb, "settings", "external_links"), (docSnap) => {
+        if(docSnap.exists() && docSnap.data().links) {
+            globalDynamicLinks = docSnap.data().links;
+        } else {
+            globalDynamicLinks = [];
+        }
+        renderDynamicLinksUI();
+        renderAdminLinksTable();
+    });
+
+    window.fbFirestore.onSnapshot(window.fbFirestore.doc(window.firebaseDb, "settings", "subject_resources"), (docSnap) => {
+        if(docSnap.exists() && docSnap.data().resources) {
+            globalSubjectResources = docSnap.data().resources;
+        } else {
+            globalSubjectResources = {};
+        }
+        renderResourceSubjectsUI();
+        renderAdminResourceTable();
+        if(activeResourceSubject) {
+            showResourceLinksForSubject(activeResourceSubject);
+        }
+    });
+}
+
+// --- ৫. বাউন্ডারি টাইম ও লজিক্যাল ডেট ক্যালকুলেশন ---
 function getLogicalDateString() {
     const boundaryTime = localStorage.getItem('globalDayStartBoundary') || '00:00';
-    const [boundaryHour, boundaryMinute] = boundaryTime.split(':').map(Number);
+    const [bHour, bMinute] = boundaryTime.split(':').map(Number);
     const now = new Date();
-    if (now.getHours() < boundaryHour || (now.getHours() === boundaryHour && now.getMinutes() < boundaryMinute)) {
-        const previousDay = new Date(now); previousDay.setDate(now.getDate() - 1);
+
+    if (now.getHours() < bHour || (now.getHours() === bHour && now.getMinutes() < bMinute)) {
+        const previousDay = new Date(now);
+        previousDay.setDate(now.getDate() - 1);
         return formatDateToKey(previousDay);
     }
     return formatDateToKey(now);
 }
+
 function formatDateToKey(dateObj) {
-    return `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+    const yyyy = dateObj.getFullYear();
+    const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const dd = String(dateObj.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
 }
 
-// --- 5. Firebase User Profile Management Authentication Engine ---
+// --- ৬. অথেনটিকেশন ও কোর অ্যাপ্লিকেশন রাউটিং SYSTEM ---
 async function login() {
-    const userVal = document.getElementById('login-username').value.trim().toLowerCase();
-    const passVal = document.getElementById('login-password').value.trim();
-    const errorMsg = document.getElementById('login-error');
+    const usernameInput = document.getElementById('login-username').value.trim().toLowerCase();
+    const passwordInput = document.getElementById('login-password').value.trim();
 
-    if (userVal === '' || passVal === '') { errorMsg.innerText = "Please provide both alphanumeric credentials!"; return; }
-    const fakeEmail = `${userVal}@studymate.com`;
-    errorMsg.innerText = "Validating user session status...";
+    if (!usernameInput || !passwordInput) return;
 
     try {
-        const userCredential = await window.fbSignIn(window.firebaseAuth, fakeEmail, passVal);
-        const user = userCredential.user;
-        const userDocRef = window.fbFirestore.doc(window.firebaseDb, "users", user.uid);
-        const userDoc = await window.fbFirestore.getDoc(userDocRef);
-        
-        currentUser = userDoc.exists() ? userDoc.data() : { username: userVal, role: 'user', uid: user.uid };
-        if (userVal === 'admin') currentUser.role = 'admin';
+        if(window.fbSignIn && window.firebaseAuth) {
+            const userCredential = await window.fbSignIn(window.firebaseAuth, `${usernameInput}@studymate.com`, passwordInput);
+            if(window.fbFirestore && window.firebaseDb) {
+                const userDocRef = window.fbFirestore.doc(window.firebaseDb, "users", userCredential.user.uid);
+                const userDocSnap = await window.fbFirestore.getDoc(userDocRef);
+
+                if (userDocSnap.exists()) {
+                    currentUser = userDocSnap.data();
+                } else {
+                    currentUser = { username: usernameInput, role: 'user', uid: userCredential.user.uid };
+                }
+            }
+        } else {
+            // ফায়ারবেস না থাকলে লোকাল অফলাইন মোড (টেস্টিং ব্যাকআপ)
+            currentUser = { username: usernameInput, role: (usernameInput === 'admin' ? 'admin' : 'user') };
+        }
+
+        if (usernameInput === 'admin') {
+            currentUser.role = 'admin';
+        }
 
         document.getElementById('login-section').classList.remove('active-section');
         document.getElementById('app-section').classList.add('active-section');
-        document.getElementById('welcome-username').innerText = currentUser.username.toUpperCase();
-        document.getElementById('user-display').innerText = `User: ${currentUser.username}`;
+        document.getElementById('welcome-username').innerText = currentUser.username;
+        document.getElementById('user-display').innerText = `ইউজার: ${currentUser.username}`;
 
-        document.getElementById('admin-menu-item').style.display = currentUser.role === 'admin' ? 'block' : 'none';
-        document.getElementById('admin-chapter-form').style.display = currentUser.role === 'admin' ? 'flex' : 'none';
+        if (currentUser.role === 'admin') {
+            const adminMenuItem = document.getElementById('admin-menu-item');
+            if(adminMenuItem) adminMenuItem.style.display = 'block';
+            
+            const adminChapForm = document.getElementById('admin-chapter-form');
+            if(adminChapForm) adminChapForm.style.display = 'flex';
+            
+            const adminTaskForm = document.getElementById('admin-task-form');
+            if(adminTaskForm) adminTaskForm.style.display = 'block';
+        } else {
+            const adminMenuItem = document.getElementById('admin-menu-item');
+            if(adminMenuItem) adminMenuItem.style.display = 'none';
+            
+            const adminChapForm = document.getElementById('admin-chapter-form');
+            if(adminChapForm) adminChapForm.style.display = 'none';
+            
+            const adminTaskForm = document.getElementById('admin-task-form');
+            if(adminTaskForm) adminTaskForm.style.display = 'none';
+        }
 
-        loadUserData();
-        syncUserLiveStatus();
-        updateHomeGroupDisplay();
+        await loadUserData();
         showPage('home-page', document.querySelector('.sidebar-item'));
-    } catch (error) { errorMsg.innerText = "Invalid authentication username credentials pair!"; }
+
+    } catch (error) {
+        console.error(error);
+        document.getElementById('login-error').innerText = "ভুল ইউজারনেম অথবা পাসওয়ার্ড!";
+    }
 }
 
 function logout() {
-    if (currentUser) updateUserLiveStatusOffline();
-    currentUser = null; stopTimer();
-    if (dashboardInterval) clearInterval(dashboardInterval);
+    currentUser = null;
+    stopTimer();
+    stopSubjectTimer();
+    resetPomodoroTimer();
     document.getElementById('login-section').classList.add('active-section');
     document.getElementById('app-section').classList.remove('active-section');
     document.getElementById('sidebar').classList.add('hide');
 }
 
-async function updateHomeGroupDisplay() {
-    if(!currentUser) return;
-    try {
-        const groupsSnapshot = await window.fbFirestore.getDocs(window.fbFirestore.collection(window.firebaseDb, "study_groups"));
-        let myGroup = "No Group";
-        groupsSnapshot.forEach(gSnap => {
-            const gData = gSnap.data();
-            if(gData.members && gData.members.includes(currentUser.username)) {
-                myGroup = gData.name;
-            }
-        });
-        const el = document.getElementById('user-group-display');
-        if(el) el.innerText = myGroup;
-    } catch(e) { console.error(e); }
-}
-
-// --- 6. Navigation Control System Layout Logic Switching ---
-function showPage(pageId, element) {
-    document.querySelectorAll('.page-content').forEach(p => p.classList.remove('active-page'));
-    const targetPage = document.getElementById(pageId);
-    if (targetPage) targetPage.classList.add('active-page');
-
-    document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active-nav'));
-    if (element) element.classList.add('active-nav');
-    document.getElementById('sidebar').classList.add('hide');
-
-    if (dashboardInterval) clearInterval(dashboardInterval);
-
-    if (pageId === 'self-tracker-page') updateTrackerCards();
-    if (pageId === 'session-report-page') { buildCalendar(); loadReportForDate(getLogicalDateString()); }
-    if (pageId === 'public-dashboard-page') { renderPublicDashboard(); dashboardInterval = setInterval(renderPublicDashboard, 3000); }
-    if (pageId === 'study-leaderboard-page') { renderStudyLeaderboard(); dashboardInterval = setInterval(renderStudyLeaderboard, 3000); }
-    if (pageId === 'group-leaderboard-page') { renderGroupLeaderboard(); dashboardInterval = setInterval(renderGroupLeaderboard, 3000); }
-    if (pageId === 'admin-page' && currentUser.role === 'admin') { renderUserTable(); renderAdminGroups(); }
-    
-    if (pageId === 'syllabus-tracker-page' || pageId === 'home-page') { loadUserData(); }
-}
-document.getElementById('menu-btn').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('hide'));
-
-// --- 7. Centralized Real-time Firestore Syllabus Sync Engines ---
-async function saveSyllabusToCloud() {
-    try {
-        if (window.fbFirestore && window.firebaseDb) {
-            const syllabusDocRef = window.fbFirestore.doc(window.firebaseDb, "settings", "global_syllabus_data");
-            await window.fbFirestore.setDoc(syllabusDocRef, { data: JSON.stringify(globalSyllabusData), updatedBy: currentUser.username, timestamp: new Date() });
-        }
-    } catch (e) { console.error("Cloud storage backup failure: ", e); }
-}
-
-// FIX: Added real-time onSnapshot listener for all users
 async function loadUserData() {
+    if (!currentUser) return;
+    
     userDailyLogs = JSON.parse(localStorage.getItem(`userDailyLogs_${currentUser.username}`)) || {};
+    userSubjectDailyLogs = JSON.parse(localStorage.getItem(`userSubjectDailyLogs_${currentUser.username}`)) || {};
     userTicksData = JSON.parse(localStorage.getItem(`userTicks_${currentUser.username}`)) || {};
 
-    fixedSubjects.forEach(sub => { if (!globalSyllabusData[sub]) globalSyllabusData[sub] = []; });
-
     try {
-        if (window.fbFirestore && window.firebaseDb) {
-            const syllabusDocRef = window.fbFirestore.doc(window.firebaseDb, "settings", "global_syllabus_data");
-            
-            // Firebase real-time dynamic listener attached here
-            window.fbFirestore.onSnapshot(syllabusDocRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const cloudContent = docSnap.data().data;
-                    if (cloudContent) {
-                        globalSyllabusData = JSON.parse(cloudContent);
-                        localStorage.setItem('globalSyllabusData', cloudContent);
-                        
-                        fixedSubjects.forEach(sub => { if (!globalSyllabusData[sub]) globalSyllabusData[sub] = []; });
-                        
-                        // Instantly redraw the syllabus screen for user
-                        renderNestedSyllabus();
+        if(window.fbFirestore && window.firebaseDb) {
+            const liveDocRef = window.fbFirestore.doc(window.firebaseDb, "liveActivity", currentUser.username);
+            const liveSnap = await window.fbFirestore.getDoc(liveDocRef);
+            if(liveSnap.exists()) {
+                const cloudData = liveSnap.data();
+                Object.keys(cloudData).forEach(dateKey => {
+                    if(typeof cloudData[dateKey] === 'object') {
+                        userDailyLogs[dateKey] = {
+                            ...userDailyLogs[dateKey],
+                            ...cloudData[dateKey]
+                        };
                     }
-                }
-            });
+                });
+                localStorage.setItem(`userDailyLogs_${currentUser.username}`, JSON.stringify(userDailyLogs));
+            }
         }
     } catch (e) {
-        console.error("Realtime stream setup aborted: ", e);
+        console.error("Error loading user logs:", e);
     }
 
-    globalSyllabusData = JSON.parse(localStorage.getItem('globalSyllabusData')) || {};
-    fixedSubjects.forEach(sub => { if (!globalSyllabusData[sub]) globalSyllabusData[sub] = []; });
+    const fillDropdown = (id) => {
+        const el = document.getElementById(id);
+        if(el) {
+            el.innerHTML = '';
+            fixedSubjects.forEach(s => el.innerHTML += `<option value="${s}">${s}</option>`);
+        }
+    };
+    fillDropdown('sub-dropdown');
+    fillDropdown('track-subject-dropdown');
+    fillDropdown('admin-resource-sub-dropdown'); 
 
-    const dropdown = document.getElementById('sub-dropdown');
-    if(dropdown) {
-        dropdown.innerHTML = '';
-        fixedSubjects.forEach(sub => dropdown.innerHTML += `<option value="${sub}">${sub}</option>`);
-        dropdown.value = currentSelectedSubject;
-    }
+    currentSelectedSubject = fixedSubjects[0];
+    currentTrackingSubject = fixedSubjects[0];
+    
+    updateTrackerCards(); 
     renderNestedSyllabus();
 }
 
-// --- 8. Self Tracker Timing Metric Engine Algorithms ---
+function showPage(pageId, element) {
+    document.querySelectorAll('.page-content').forEach(p => p.classList.remove('active-page'));
+    const targetPage = document.getElementById(pageId);
+    if(targetPage) targetPage.classList.add('active-page');
+
+    document.querySelectorAll('.sidebar-item').forEach(item => item.classList.remove('active-nav'));
+    if (element) element.classList.add('active-nav');
+
+    document.getElementById('sidebar').classList.add('hide');
+
+    if (pageId === 'self-tracker-page') updateTrackerCards();
+    if (pageId === 'public-dashboard-page') renderPublicDashboard();
+    if (pageId === 'subject-tracker-page') updateSubjectTrackerUI();
+    if (pageId === 'subject-resource-page') renderResourceSubjectsUI(); 
+    if (pageId === 'session-report-page') {
+        selectedReportDateStr = getLogicalDateString();
+        buildCalendar();
+        loadReportForDate(selectedReportDateStr);
+    }
+    if (pageId === 'admin-page' && currentUser && currentUser.role === 'admin') {
+        renderUserTable();
+        renderAdminLinksTable();
+        renderAdminResourceTable(); 
+    }
+}
+
+const menuBtn = document.getElementById('menu-btn');
+if(menuBtn) {
+    menuBtn.addEventListener('click', () => {
+        document.getElementById('sidebar').classList.toggle('hide');
+    });
+}
+
+// --- ७. সেল্ফ ট্র্যাকার টাইমিং এবং রিয়েল-টাইম থ্রেড হ্যান্ডলিং ---
 function updateTrackerCards() {
     const todayStr = getLogicalDateString();
     if (!userDailyLogs[todayStr]) userDailyLogs[todayStr] = {};
-    document.getElementById('main-timer').innerText = formatTime(userDailyLogs[todayStr][currentActivity] || 0);
-    document.getElementById('current-activity-name').innerText = currentActivity;
+
+    const mainTimerEl = document.getElementById('main-timer');
+    if (mainTimerEl) {
+        mainTimerEl.innerText = formatTime(userDailyLogs[todayStr][currentActivity] || 0);
+    }
+    
+    const activityNameEl = document.getElementById('current-activity-name');
+    if (activityNameEl) {
+        activityNameEl.innerText = currentActivity;
+    }
 
     document.querySelectorAll('.card').forEach(card => {
-        const name = card.querySelector('h3').innerText.trim();
-        card.classList.toggle('active', name === currentActivity);
-        card.querySelector('.time').innerText = formatTime(userDailyLogs[todayStr][name] || 0);
+        const cardHeader = card.querySelector('h3');
+        if (cardHeader) {
+            const cardActivityName = cardHeader.innerText.trim();
+            if (cardActivityName === currentActivity) {
+                card.classList.add('active');
+            } else {
+                card.classList.remove('active');
+            }
+            const timeEl = card.querySelector('.time');
+            if (timeEl) {
+                timeEl.innerText = formatTime(userDailyLogs[todayStr][cardActivityName] || 0);
+            }
+        }
     });
 }
 
 function startTimer() {
     if (timerInterval) clearInterval(timerInterval);
-    timerInterval = setInterval(() => {
-        const todayStr = getLogicalDateString();
-        if (!userDailyLogs[todayStr]) userDailyLogs[todayStr] = {};
-        userDailyLogs[todayStr][currentActivity] = (userDailyLogs[todayStr][currentActivity] || 0) + 1;
-        updateTrackerCards();
-        localStorage.setItem(`userDailyLogs_${currentUser.username}`, JSON.stringify(userDailyLogs));
-        syncUserLiveStatus();
-    }, 1000);
+    
+    const todayStr = getLogicalDateString();
+    if (!userDailyLogs[todayStr]) userDailyLogs[todayStr] = {};
+    
+    if (!userDailyLogs[todayStr]['startTime']) {
+        const now = new Date();
+        userDailyLogs[todayStr]['startTime'] = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    mainTimerSessionSeconds = 0; 
+    localStorage.setItem('last_active_timestamp', Date.now()); 
+
+    if (myWorker) {
+        myWorker.postMessage('start');
+        myWorker.onmessage = function(e) {
+            if (e.data === 'tick') {
+                handleTimerTick();
+            }
+        };
+    } else {
+        timerInterval = setInterval(handleTimerTick, 1000);
+    }
+
     isRunning = true;
-    const btn = document.querySelector('.stop-btn'); btn.innerText = "Stop Session"; btn.style.background = "#ef4444";
+    const stopBtn = document.querySelector('.stop-btn');
+    if (stopBtn) {
+        stopBtn.innerText = "শেষ করুন";
+        stopBtn.style.background = "#ef4444";
+    }
+}
+
+function handleTimerTick() {
+    const todayStr = getLogicalDateString();
+    if (!userDailyLogs[todayStr]) userDailyLogs[todayStr] = {};
+
+    userDailyLogs[todayStr][currentActivity] = (userDailyLogs[todayStr][currentActivity] || 0) + 1;
+    mainTimerSessionSeconds++;
+
+    if (isSubjectTimerRunning) {
+        if (!userSubjectDailyLogs[todayStr]) userSubjectDailyLogs[todayStr] = {};
+        userSubjectDailyLogs[todayStr][currentTrackingSubject] = (userSubjectDailyLogs[todayStr][currentTrackingSubject] || 0) + 1;
+        subjectTimerSessionSeconds++;
+        
+        if (currentActivity !== 'Self Study') {
+            userDailyLogs[todayStr]['Self Study'] = (userDailyLogs[todayStr]['Self Study'] || 0) + 1;
+        }
+    }
+
+    localStorage.setItem('last_active_timestamp', Date.now());
+
+    if (mainTimerSessionSeconds >= 7200 || subjectTimerSessionSeconds >= 7200) { 
+        stopTimer();
+        if (isSubjectTimerRunning) stopSubjectTimer();
+        alert("আপনার কোনো একটি টাইমার একটানা ২ ঘণ্টা অতিক্রম করায় অটোমেটিক বন্ধ করা হয়েছে।");
+        return;
+    }
+
+    updateTrackerCards();
+    if (isSubjectTimerRunning) updateSubjectTrackerUI();
+    
+    if (currentUser) {
+        localStorage.setItem(`userDailyLogs_${currentUser.username}`, JSON.stringify(userDailyLogs));
+        localStorage.setItem(`userSubjectDailyLogs_${currentUser.username}`, JSON.stringify(userSubjectDailyLogs));
+    }
+
+    syncTimeWithFirebaseCloud(todayStr);
 }
 
 function stopTimer() {
-    clearInterval(timerInterval); isRunning = false;
-    const btn = document.querySelector('.stop-btn'); btn.innerText = "Start Session"; btn.style.background = "var(--theme-btn-bg)";
-    syncUserLiveStatus();
+    if (myWorker) myWorker.postMessage('stop');
+    clearInterval(timerInterval);
+    isRunning = false;
+    
+    const stopBtn = document.querySelector('.stop-btn');
+    if (stopBtn) {
+        stopBtn.innerText = "শুরু করুন";
+        stopBtn.style.background = "var(--theme-btn-bg)";
+    }
+    syncTimeWithFirebaseCloud(getLogicalDateString());
+}
+
+async function syncTimeWithFirebaseCloud(todayStr) {
+    if(!currentUser || !window.fbFirestore) return;
+    try {
+        const now = new Date();
+        const currentTimeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const liveDocRef = window.fbFirestore.doc(window.firebaseDb, "liveActivity", currentUser.username);
+        
+        await window.fbFirestore.setDoc(liveDocRef, {
+            [todayStr]: {
+                'Self Study': userDailyLogs[todayStr]['Self Study'] || 0,
+                'Class/Mock Test': userDailyLogs[todayStr]['Class/Mock Test'] || 0,
+                'Mobile scroll': userDailyLogs[todayStr]['Mobile scroll'] || 0,
+                'Prayer': userDailyLogs[todayStr]['Prayer'] || 0,
+                'Food': userDailyLogs[todayStr]['Food'] || 0,
+                'Sleep': userDailyLogs[todayStr]['Sleep'] || 0,
+                'Sports': userDailyLogs[todayStr]['Sports'] || 0,
+                'Other': userDailyLogs[todayStr]['Other'] || 0,
+                'startTime': userDailyLogs[todayStr]['startTime'] || '--:--',
+                'lastActive': currentTimeStr,
+                'currentStatus': isRunning ? `${currentActivity} করছেন` : 'থামানো আছে'
+            }
+        }, { merge: true });
+    } catch (e) {
+        console.error("Cloud tracking sync error:", e);
+    }
 }
 
 function selectActivity(activityName, element) {
-    currentActivity = activityName; updateTrackerCards();
-    if (isRunning) startTimer(); else syncUserLiveStatus();
+    if (isRunning) {
+        clearInterval(timerInterval);
+        currentActivity = activityName;
+        startTimer();
+    } else {
+        currentActivity = activityName;
+        updateTrackerCards();
+    }
 }
-document.querySelector('.stop-btn').addEventListener('click', () => isRunning ? stopTimer() : startTimer());
+
+const mainStopBtn = document.querySelector('.stop-btn');
+if (mainStopBtn) {
+    mainStopBtn.addEventListener('click', () => {
+        if (isRunning) {
+            stopTimer();
+        } else {
+            startTimer();
+        }
+    });
+}
 
 function formatTime(totalSeconds) {
     const hrs = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
@@ -310,413 +562,695 @@ function formatTime(totalSeconds) {
     return `${hrs}:${mins}:${secs}`;
 }
 
-function formatHoursDecimal(totalSeconds) {
-    return (totalSeconds / 3600).toFixed(1) + 'h';
-}
+// --- ৮. পাবলিক স্টাডি ড্যাশবোর্ড ইঞ্জিন ---
+function renderPublicDashboard() {
+    const grid = document.getElementById('public-dashboard-grid');
+    if (!grid || !window.fbFirestore || !window.firebaseDb) return;
 
-// --- 9. Live Database Synchronization Components ---
-async function syncUserLiveStatus() {
-    if (!currentUser) return;
-    const todayStr = getLogicalDateString();
-    const dayData = userDailyLogs[todayStr] || {};
-    
-    const selfStudySec = dayData['Self Study'] || 0;
-    const classTestSec = dayData['Class/Mock Test'] || 0;
+    window.fbFirestore.onSnapshot(window.fbFirestore.collection(window.firebaseDb, "liveActivity"), (querySnapshot) => {
+        grid.innerHTML = '';
+        const todayStr = getLogicalDateString();
 
-    try {
-        const liveDocRef = window.fbFirestore.doc(window.firebaseDb, "live_status", currentUser.uid);
-        await window.fbFirestore.setDoc(liveDocRef, {
-            username: currentUser.username,
-            currentActivity: currentActivity,
-            isRunning: isRunning,
-            selfStudySeconds: selfStudySec, 
-            totalStudyTime: formatTime(selfStudySec + classTestSec),
-            lastActive: new Date()
-        }, { merge: true });
-    } catch (e) { console.error(e); }
-}
-
-async function updateUserLiveStatusOffline() {
-    if (!currentUser) return;
-    try {
-        const liveDocRef = window.fbFirestore.doc(window.firebaseDb, "live_status", currentUser.uid);
-        await window.fbFirestore.setDoc(liveDocRef, { isRunning: false, currentActivity: 'Offline', lastActive: new Date() }, { merge: true });
-    } catch (e) { console.error(e); }
-}
-
-// --- 10. Study Leaderboard & Group Ranking Compilation Operations ---
-async function fetchAllLiveStatus() {
-    const liveColRef = window.fbFirestore.collection(window.firebaseDb, "live_status");
-    const snapshot = await window.fbFirestore.getDocs(liveColRef);
-    let usersList = [];
-    snapshot.forEach(docSnap => usersList.push(docSnap.data()));
-    return usersList;
-}
-
-async function renderStudyLeaderboard() {
-    const container = document.getElementById('study-leaderboard-list-container');
-    if (!container) return;
-    try {
-        let users = await fetchAllLiveStatus();
-        const groupsSnapshot = await window.fbFirestore.getDocs(window.fbFirestore.collection(window.firebaseDb, "study_groups"));
-        
-        let userGroupMap = {};
-        groupsSnapshot.forEach(gSnap => {
-            const gData = gSnap.data();
-            if(gData.members) {
-                gData.members.forEach(m => { userGroupMap[m] = gData.name; });
-            }
-        });
-
-        users.sort((a, b) => (b.selfStudySeconds || 0) - (a.selfStudySeconds || 0));
-
-        container.innerHTML = '';
-        users.forEach((user, index) => {
-            let rankNum = index + 1;
-            let groupName = userGroupMap[user.username] || "No Group";
-
-            container.innerHTML += `
-                <div class="custom-row-card">
-                    <div class="card-left-section">
-                        <div class="rank-badge-item">${rankNum}</div>
-                        <div class="meta-profile-details">
-                            <span class="profile-main-title">@${user.username}</span>
-                            <span class="profile-sub-tag">Hsc 28 • ${groupName}</span>
-                        </div>
-                    </div>
-                    <div class="card-right-metrics study-highlight">
-                        ${formatTime(user.selfStudySeconds || 0)}
-                    </div>
-                </div>
-            `;
-        });
-        if(users.length === 0) container.innerHTML = '<p style="color: #94a3b8; text-align:center;">No users registered active logs.</p>';
-    } catch (e) { container.innerHTML = '<p style="color:#ef4444;">Failed to compile Study Leaderboard.</p>'; }
-}
-
-async function renderGroupLeaderboard() {
-    const container = document.getElementById('group-leaderboard-list-container');
-    if (!container) return;
-    try {
-        let users = await fetchAllLiveStatus();
-        const groupsSnapshot = await window.fbFirestore.getDocs(window.fbFirestore.collection(window.firebaseDb, "study_groups"));
-        
-        let groupsList = [];
-        groupsSnapshot.forEach(gSnap => {
-            let gData = gSnap.data();
-            gData.id = gSnap.id;
-            let totalSec = 0;
-            let memberDetails = [];
-            
-            let membersArray = gData.members || [];
-            for(let i=0; i<5; i++) {
-                if(i < membersArray.length) {
-                    let mName = membersArray[i];
-                    let matchUser = users.find(u => u.username === mName);
-                    let sec = matchUser ? (matchUser.selfStudySeconds || 0) : 0;
-                    totalSec += sec;
-                    memberDetails.push({ username: mName, selfStudySeconds: sec });
-                } else {
-                    memberDetails.push({ username: null, selfStudySeconds: 0 });
-                }
-            }
-            gData.totalSeconds = totalSec;
-            gData.memberDetails = memberDetails;
-            gData.actualCount = membersArray.length;
-            groupsList.push(gData);
-        });
-
-        groupsList.sort((a, b) => b.totalSeconds - a.totalSeconds);
-
-        container.innerHTML = '';
-        groupsList.forEach((group, index) => {
-            let rankNum = index + 1;
-            let logo = group.logo || "📚";
-
-            let circlesHTML = '<div class="member-dots-row">';
-            group.memberDetails.forEach(m => {
-                let hours = m.selfStudySeconds / 3600;
-                if (m.username === null || hours < 1) {
-                    circlesHTML += `<div class="status-dot dot-empty"></div>`;
-                } else if (hours >= 1 && hours < 5) {
-                    circlesHTML += `<div class="status-dot dot-red"></div>`;
-                } else if (hours >= 5 && hours < 10) {
-                    circlesHTML += `<div class="status-dot dot-yellow"></div>`;
-                } else if (hours >= 10) {
-                    circlesHTML += `<div class="status-dot dot-green"></div>`;
-                }
-            });
-            circlesHTML += '</div>';
-
-            container.innerHTML += `
-                <div class="custom-row-card">
-                    <div class="card-left-section">
-                        <div class="rank-badge-item">${rankNum}</div>
-                        <div class="group-logo-avatar">${logo}</div>
-                        <div class="meta-profile-details">
-                            <span class="profile-main-title">${group.name}</span>
-                            <span class="profile-sub-tag">Hsc 28 • Members: ${group.actualCount}</span>
-                        </div>
-                    </div>
-                    <div class="card-right-flex-container">
-                        ${circlesHTML}
-                        <div class="card-right-metrics group-highlight">${formatHoursDecimal(group.totalSeconds)}</div>
-                    </div>
-                </div>
-            `;
-        });
-        if(groupsList.length === 0) container.innerHTML = '<p style="color: #94a3b8; text-align:center;">No active study groups established.</p>';
-    } catch (e) { container.innerHTML = '<p style="color:#ef4444;">Failed compiling groups data structure metrics.</p>'; }
-}
-
-// --- 11. Custom Admin Panel Core Functionalities Module ---
-async function createStudyGroup() {
-    if (currentUser.role !== 'admin') return;
-    const gName = document.getElementById('new-group-name').value.trim();
-    const gLogo = document.getElementById('new-group-logo').value.trim() || "📚";
-    if (gName === '') return alert('Group naming designation field required!');
-
-    try {
-        const groupRef = window.fbFirestore.doc(window.fbFirestore.collection(window.firebaseDb, "study_groups"));
-        await window.fbFirestore.setDoc(groupRef, { name: gName, logo: gLogo, members: [], createdAt: new Date() });
-        document.getElementById('new-group-name').value = '';
-        document.getElementById('new-group-logo').value = '';
-        renderAdminGroups();
-        alert('New dynamic performance collection structural team defined successfully!');
-    } catch(e) { alert('Internal database write cancellation triggered!'); }
-}
-
-async function renderAdminGroups() {
-    const container = document.getElementById('admin-groups-list-container');
-    if (!container) return;
-    container.innerHTML = 'Parsing database metadata context...';
-
-    try {
-        const groupsSnapshot = await window.fbFirestore.getDocs(window.fbFirestore.collection(window.firebaseDb, "study_groups"));
-        container.innerHTML = '';
-
-        groupsSnapshot.forEach(gSnap => {
-            const gData = gSnap.data();
-            const gId = gSnap.id;
-            const logo = gData.logo || "📚";
-
-            let memberBadges = '';
-            if (gData.members && gData.members.length > 0) {
-                gData.members.forEach(mName => {
-                    memberBadges += `
-                        <span style="background:#334155; padding:3px 8px; border-radius:4px; font-size:0.85rem; display:inline-flex; align-items:center; gap:5px; color:#fff;">
-                            @${mName} 
-                            <i class="fa-solid fa-circle-xmark" onclick="kickFromGroup('${gId}', '${mName}')" style="color:#ef4444; cursor:pointer;" title="Kick User"></i>
-                        </span>`;
-                });
-            } else { memberBadges = '<span style="color:#64748b; font-size:0.85rem; font-style: italic">Empty Membership Logs</span>'; }
-
-            container.innerHTML += `
-                <div style="background: #1e293b; border: 1px solid #334155; padding: 12px; border-radius: 6px;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <input type="text" value="${logo}" onchange="updateGroupLogo('${gId}', this.value)" style="width:30px; text-align:center; background:#111827; color:#fff; border:1px solid #334155; border-radius:4px; padding:2px;">
-                            <input type="text" value="${gData.name}" onchange="updateGroupName('${gId}', this.value)" style="background:#111827; color:#fff; border:1px solid #334155; border-radius:4px; padding:2px 6px; font-weight:bold;">
-                        </div>
-                        <button onclick="deleteGroup('${gId}')" style="background:none; border:none; color:#ef4444; cursor:pointer;"><i class="fa-solid fa-trash"></i> Drop Group</button>
-                    </div>
-                    <div style="display:flex; gap:10px; margin-bottom:10px;">
-                        <input type="text" id="add-member-input-${gId}" placeholder="Type username to append..." style="padding:4px; font-size:0.85rem; background:#111827; color:#fff; border:1px solid #334155; border-radius:4px;">
-                        <button onclick="addMemberToGroup('${gId}')" style="background:var(--theme-btn-bg); color:white; border:none; padding:4px 10px; border-radius:4px; font-size:0.85rem; cursor:pointer;">Add Member</button>
-                    </div>
-                    <div style="display:flex; flex-wrap:wrap; gap:8px;">${memberBadges}</div>
-                </div>
-            `;
-        });
-    } catch(e) { container.innerHTML = 'Error compiling groups structure details.'; }
-}
-
-async function updateGroupName(groupId, newName) {
-    if(newName.trim() === '') return;
-    try {
-        const groupRef = window.fbFirestore.doc(window.firebaseDb, "study_groups", groupId);
-        await window.fbFirestore.setDoc(groupRef, { name: newName.trim() }, { merge: true });
-    } catch(e) { console.error(e); }
-}
-
-async function updateGroupLogo(groupId, newLogo) {
-    if(newLogo.trim() === '') return;
-    try {
-        const groupRef = window.fbFirestore.doc(window.firebaseDb, "study_groups", groupId);
-        await window.fbFirestore.setDoc(groupRef, { logo: newLogo.trim() }, { merge: true });
-    } catch(e) { console.error(e); }
-}
-
-async function addMemberToGroup(groupId) {
-    const input = document.getElementById(`add-member-input-${groupId}`);
-    const uName = input.value.trim().toLowerCase();
-    if (uName === '') return;
-
-    try {
-        const groupRef = window.fbFirestore.doc(window.firebaseDb, "study_groups", groupId);
-        const gSnap = await window.fbFirestore.getDoc(groupRef);
-        let currentMembers = gSnap.data().members || [];
-        
-        if (currentMembers.length >= 5) return alert('Max limit reached! Each study group can only hold 5 members.');
-        if (currentMembers.includes(uName)) return alert('Selected user is already a member of this target cluster!');
-        currentMembers.push(uName);
-
-        await window.fbFirestore.setDoc(groupRef, { members: currentMembers }, { merge: true });
-        input.value = '';
-        renderAdminGroups();
-    } catch(e) { alert('Failed database target record modification!'); }
-}
-
-async function kickFromGroup(groupId, username) {
-    if (!confirm(`Are you absolutely sure you want to kick user @${username} out from this study group?`)) return;
-    try {
-        const groupRef = window.fbFirestore.doc(window.firebaseDb, "study_groups", groupId);
-        const gSnap = await window.fbFirestore.getDoc(groupRef);
-        let currentMembers = gSnap.data().members || [];
-        
-        currentMembers = currentMembers.filter(m => m !== username);
-        await window.fbFirestore.setDoc(groupRef, { members: currentMembers }, { merge: true });
-        renderAdminGroups();
-    } catch(e) { alert('Operational action cancellation exception.'); }
-}
-
-async function deleteGroup(groupId) {
-    if (!confirm('Are you sure you want to permanently delete this group?')) return;
-    try {
-        await window.fbFirestore.deleteDoc(window.fbFirestore.doc(window.firebaseDb, "study_groups", groupId));
-        renderAdminGroups();
-    } catch(e) { alert('Action failed.'); }
-}
-
-// --- 12. Legacy Framework Modules Render Layout System Hooks ---
-async function renderPublicDashboard() {
-    const grid = document.getElementById('public-users-grid'); if (!grid) return;
-    try {
-        let users = await fetchAllLiveStatus();
-        let htmlContent = '';
-        users.forEach((data) => {
-            let iconHTML = '<i class="fa-solid fa-person-running"></i>';
-            let localizedActivity = data.currentActivity;
-            if (data.currentActivity === 'Self Study') { iconHTML = '<i class="fa-solid fa-user-graduate"></i>'; localizedActivity = 'পড়াশোনা করছে'; }
-            else if (data.currentActivity === 'Class/Mock Test') { iconHTML = '<i class="fa-solid fa-laptop-code"></i>'; localizedActivity = 'ক্লাস/মক টেস্ট দিচ্ছে'; }
-            else if (data.currentActivity === 'Mobile scroll') { iconHTML = '<i class="fa-solid fa-mobile-screen-button"></i>'; localizedActivity = 'মোবাইল স্ক্রোল করছে'; }
-            else if (data.currentActivity === 'Prayer') { iconHTML = '<i class="fa-solid fa-hands-praying"></i>'; localizedActivity = 'নামাজ পড়ছে'; }
-            else if (data.currentActivity === 'Food') { iconHTML = '<i class="fa-solid fa-utensils"></i>'; localizedActivity = 'খাবার খাচ্ছে'; }
-            else if (data.currentActivity === 'Sleep') { iconHTML = '<i class="fa-solid fa-bed"></i>'; localizedActivity = 'ঘুমাচ্ছে'; }
-            else if (data.currentActivity === 'Offline') { iconHTML = '<i class="fa-solid fa-moon"></i>'; localizedActivity = 'অফলাইন'; }
-            
-            let statusBorderColor = data.isRunning ? 'border-left: 5px solid #10b981;' : 'border-left: 5px solid #64748b;';
-            let pulseDot = data.isRunning ? '<span style="background:#10b981; width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:5px; box-shadow: 0 0 8px #10b981;"></span>' : '<span style="background:#64748b; width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:5px;"></span>';
-            let displayActivity = data.isRunning ? localizedActivity : `${localizedActivity} (থেমে আছে)`;
-
-            htmlContent += `
-                <div class="card" style="display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 15px; ${statusBorderColor} background: var(--theme-card-bg); border-radius: 8px;">
-                    <div style="display: flex; justify-content: space-between; width: 100%; margin-bottom: 10px; align-items: center;">
-                        <h3 style="font-size: 1.2rem; color: var(--theme-text-color); margin: 0;">@${data.username}</h3>
-                        <div style="display: flex; align-items: center; font-size: 0.85rem;">${pulseDot} <span style="color: #94a3b8;">${data.isRunning ? 'সক্রিয়' : 'নিষ্ক্রিয়'}</span></div>
-                    </div>
-                    <p style="font-size: 0.95rem; color: #cbd5e1; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">${iconHTML} <span>${displayActivity}</span></p>
-                    <p style="font-size: 0.85rem; color: #94a3b8; margin: 0; width: 100%; border-top: 1px solid #334155; padding-top: 8px; margin-top: 5px;"><i class="fa-solid fa-clock"></i> আজকের মোট স্টাডি: <strong style="color: var(--theme-btn-bg);">${data.totalStudyTime || '00:00:00'}</strong></p>
-                </div>`;
-        });
-        grid.innerHTML = htmlContent || `<p style="color: #94a3b8; text-align: center; width: 100%;">No online users reported structural metrics yet.</p>`;
-    } catch (e) { grid.innerHTML = `<p style="color: #ef4444; text-align: center; width: 100%;">Failed to acquire server updates.</p>`; }
-}
-
-function selectSubject(subName) { currentSelectedSubject = subName; renderNestedSyllabus(); }
-function renderNestedSyllabus() {
-    const container = document.getElementById('syllabus-nested-container'); if(!container) return; container.innerHTML = '';
-    const chapters = globalSyllabusData[currentSelectedSubject] || []; const isAdmin = (currentUser && currentUser.role === 'admin');
-    if (chapters.length === 0) { container.innerHTML = `<p style="color: #94a3b8; text-align: center; padding: 20px;">Syllabus outline parameters for "${currentSelectedSubject}" are currently unconfigured.</p>`; return; }
-    chapters.forEach((chap, chapIndex) => {
-        let subunitHTML = '';
-        if (chap.subunits.length === 0) { subunitHTML = `<p style="color: #64748b; font-size: 0.8rem; font-style: italic;">No nested subtopics configured.</p>`; } 
-        else {
-            chap.subunits.forEach((unit, unitIndex) => {
-                const tickKey = `${currentSelectedSubject}_${chapIndex}_${unitIndex}`; const isDone = userTicksData[tickKey] || false;
-                subunitHTML += `<div class="subunit-item ${isDone ? 'completed' : ''}"><div class="subunit-left"><input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleSubunitTick('${tickKey}', this.checked)"><span>${unit}</span></div>${isAdmin ? `<button class="delete-btn-icon" onclick="deleteSubunit(${chapIndex}, ${unitIndex})"><i class="fa-solid fa-trash-can"></i></button>` : ''}</div>`;
-            });
+        if (querySnapshot.empty) {
+            grid.innerHTML = '<p style="color:#64748b; font-style:italic; padding: 20px;">আজকে এখনও কেউ অ্যাপে অ্যাক্টিভ হয়নি।</p>';
+            return;
         }
-        container.innerHTML += `<div class="chapter-block ${chap.collapsed ? 'collapsed' : ''}" id="chap-block-${chapIndex}"><div class="chapter-header"><span class="chapter-title">${chap.title}</span><div style="display: flex; align-items: center;">${isAdmin ? `<button class="delete-btn-icon" onclick="deleteMainChapter(${chapIndex})" style="margin-right: 8px;"><i class="fa-solid fa-trash-can" style="color: #ef4444;"></i></button>` : ''}<button class="delete-btn-icon" onclick="toggleChapter(${chapIndex})" style="color: var(--theme-btn-bg);"><i class="fa-solid ${chap.collapsed ? 'fa-chevron-down' : 'fa-chevron-up'}" id="toggle-icon-${chapIndex}"></i></button></div></div><div class="subunit-container">${subunitHTML}</div>${isAdmin ? `<div class="add-subunit-form"><input type="text" id="subunit-input-${chapIndex}" placeholder="Add objective..."><button onclick="addSubunit(${chapIndex})">Add</button></div>` : ''}</div>`;
+
+        querySnapshot.forEach((doc) => {
+            const username = doc.id;
+            const userDataMap = doc.data();
+            
+            let selfStudySec = 0;
+            let classSec = 0;
+            let startTime = '--:--';
+            let lastActive = '--:--'; 
+            let currentStatus = 'অফলাইন';
+
+            if (userDataMap && userDataMap[todayStr]) {
+                selfStudySec = userDataMap[todayStr]['Self Study'] || 0;
+                classSec = userDataMap[todayStr]['Class/Mock Test'] || 0;
+                startTime = userDataMap[todayStr]['startTime'] || '--:--';
+                lastActive = userDataMap[todayStr]['lastActive'] || '--:--'; 
+                currentStatus = userDataMap[todayStr]['currentStatus'] || 'থামানো আছে';
+            }
+
+            const totalSec = selfStudySec + classSec;
+            const isUserOnline = currentStatus !== 'অফলাইন' && currentStatus !== 'অফলাইন / বের হয়ে গেছেন' && currentStatus !== 'থামানো আছে';
+
+            grid.innerHTML += `
+                <div class="card" style="padding: 20px; background: var(--theme-card-bg); border-radius: 12px; border-left: 4px solid var(--theme-btn-bg); display: flex; flex-direction: column; gap: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; color: #fff; font-size: 1.2rem;"><i class="fa-solid fa-user-graduate" style="color:var(--theme-btn-bg); margin-right:8px;"></i>${username.toUpperCase()}</h3>
+                        <span style="font-size: 0.75rem; background: ${isUserOnline ? '#22c55e' : '#64748b'}; padding: 4px 8px; border-radius: 20px; color: #fff;">
+                            ● ${isUserOnline ? 'Active' : 'Offline'}: ${lastActive}
+                        </span>
+                    </div>
+                    <div style="font-size: 0.85rem; color: #e2e8f0; background: ${isUserOnline ? 'rgba(59, 130, 246, 0.2)' : 'rgba(100, 116, 139, 0.2)'}; padding: 5px 10px; border-radius: 6px; text-align: center;">
+                        স্ট্যাটাস: ${currentStatus}
+                    </div>
+                    <div style="font-size: 0.85rem; color: #94a3b8;"><i class="fa-solid fa-clock-rotate-left"></i> স্টার্ট টাইম: <strong>${startTime}</strong></div>
+                    <div style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; font-size: 0.9rem;">
+                        <div style="margin-bottom: 4px;">📖 Self Study: <span style="font-weight: bold; color: #3b82f6;">${formatTime(selfStudySec)}</span></div>
+                        <div>💻 Class/Test: <span style="font-weight: bold; color: #ec4899;">${formatTime(classSec)}</span></div>
+                    </div>
+                    <div style="font-size: 1rem; font-weight: bold; display: flex; justify-content: space-between; border-top: 1px solid #334155; padding-top: 10px;">
+                        <span style="color: #94a3b8;">মোট পড়াশোনা:</span>
+                        <span style="color: #10b981;">${Math.floor(totalSec / 3600)}h ${Math.round((totalSec % 3600) / 60)}m</span>
+                    </div>
+                </div>
+            `;
+        });
     });
 }
+
+// --- ৯. সাবজেক্ট ট্র্যাকার ও পোমোডোরো লজিক ---
+function updateSubjectTrackerUI() {
+    const todayStr = getLogicalDateString();
+    if (!userSubjectDailyLogs[todayStr]) userSubjectDailyLogs[todayStr] = {};
+
+    const trackSubDropdown = document.getElementById('track-subject-dropdown');
+    if(trackSubDropdown) {
+        currentTrackingSubject = trackSubDropdown.value;
+    }
+    
+    const subMainTimer = document.getElementById('subject-main-timer');
+    if(subMainTimer) {
+        subMainTimer.innerText = formatTime(userSubjectDailyLogs[todayStr][currentTrackingSubject] || 0);
+    }
+
+    const logsBox = document.getElementById('subject-today-logs-box');
+    if(logsBox) {
+        logsBox.innerHTML = '<strong style="color:var(--theme-btn-bg); display:block; margin-bottom:5px;">আজকের সাবজেক্টভিত্তিক পড়াশোনা:</strong>';
+        fixedSubjects.forEach(s => {
+            const sec = userSubjectDailyLogs[todayStr][s] || 0;
+            if(sec > 0) {
+                logsBox.innerHTML += `<div style="display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px solid #1e293b;"><span>${s}:</span> <strong>${formatTime(sec)}</strong></div>`;
+            }
+        });
+    }
+}
+
+const trackSubDropdown = document.getElementById('track-subject-dropdown');
+if(trackSubDropdown){
+    trackSubDropdown.addEventListener('change', (e) => {
+        currentTrackingSubject = e.target.value;
+        updateSubjectTrackerUI();
+    });
+}
+
+function toggleSubjectTimer() {
+    if(isSubjectTimerRunning) {
+        isSubjectTimerRunning = false;
+        document.getElementById('subject-timer-toggle-btn').innerText = "সাবজেক্ট স্টাডি শুরু করুন";
+        document.getElementById('subject-timer-toggle-btn').style.background = "var(--theme-btn-bg)";
+    } else {
+        const trackSubDropdown = document.getElementById('track-subject-dropdown');
+        if(trackSubDropdown) currentTrackingSubject = trackSubDropdown.value;
+        subjectTimerSessionSeconds = 0; 
+        
+        if(!isRunning) {
+            currentActivity = 'Self Study';
+            startTimer();
+        }
+
+        isSubjectTimerRunning = true;
+        document.getElementById('subject-timer-toggle-btn').innerText = "সাবজেক্ট স্টাডি শেষ করুন";
+        document.getElementById('subject-timer-toggle-btn').style.background = "#ef4444";
+    }
+}
+
+function stopSubjectTimer() {
+    isSubjectTimerRunning = false;
+    const btn = document.getElementById('subject-timer-toggle-btn');
+    if(btn) {
+        btn.innerText = "সাবজেক্ট স্টাডি শুরু করুন";
+        btn.style.background = "var(--theme-btn-bg)";
+    }
+}
+
+function setCustomPomodoroTime() {
+    const pomoInput = document.getElementById('pomo-custom-minutes');
+    const mins = pomoInput ? (parseInt(pomoInput.value) || 25) : 25;
+    pomodoroRemainingSeconds = mins * 60;
+    updatePomodoroDisplay();
+}
+
+function updatePomodoroDisplay() {
+    const m = String(Math.floor(pomodoroRemainingSeconds / 60)).padStart(2, '0');
+    const s = String(pomodoroRemainingSeconds % 60).padStart(2, '0');
+    const pomoDisplay = document.getElementById('pomodoro-display-timer');
+    if(pomoDisplay) pomoDisplay.innerText = `${m}:${s}`;
+}
+
+function togglePomodoroTimer() {
+    if(isPomodoroRunning) {
+        clearInterval(pomodoroInterval);
+        isPomodoroRunning = false;
+        document.getElementById('pomo-start-btn').innerText = "স্টার্ট পোমোডোরো";
+        document.getElementById('pomo-status-text').innerText = "পোমোডোরো থামানো হয়েছে";
+    } else {
+        isPomodoroRunning = true;
+        document.getElementById('pomo-start-btn').innerText = "পজ পোমোডোরো";
+        document.getElementById('pomo-status-text').innerText = "⏱️ ফোকাস সেশন চলছে...";
+        pomodoroSessionSeconds = 0; 
+
+        pomodoroInterval = setInterval(() => {
+            if(pomodoroRemainingSeconds > 0) {
+                pomodoroRemainingSeconds--;
+                pomodoroSessionSeconds++;
+
+                if (pomodoroSessionSeconds >= 7200) {
+                    clearInterval(pomodoroInterval);
+                    isPomodoroRunning = false;
+                    document.getElementById('pomo-start-btn').innerText = "স্টার্ট পোমোডোরো";
+                    alert("পোমোডোরো টাইমারটি একটানা ২ ঘণ্টা চলায় অটোমেটিক বন্ধ করা হয়েছে।");
+                    return;
+                }
+                updatePomodoroDisplay();
+            } else {
+                clearInterval(pomodoroInterval);
+                isPomodoroRunning = false;
+                alert("Pomodoro Session Completed! Take a break.");
+                resetPomodoroTimer();
+            }
+        }, 1000);
+    }
+}
+
+function resetPomodoroTimer() {
+    clearInterval(pomodoroInterval);
+    isPomodoroRunning = false;
+    document.getElementById('pomo-start-btn').innerText = "স্টার্ট পোমোডোরো";
+    document.getElementById('pomo-status-text').innerText = "টাইমার বন্ধ আছে";
+    setCustomPomodoroTime();
+}
+
+function renderResourceSubjectsUI() {
+    const container = document.getElementById('resource-subject-list');
+    if(!container) return;
+    container.innerHTML = '';
+    
+    fixedSubjects.forEach(sub => {
+        const linkCount = globalSubjectResources[sub] ? globalSubjectResources[sub].length : 0;
+        container.innerHTML += `
+            <div class="card" onclick="showResourceLinksForSubject('${sub}')" style="padding: 15px; border-left: 4px solid var(--theme-btn-bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;">
+                <i class="fa-solid fa-book-bookmark" style="font-size: 1.3rem; color: var(--theme-btn-bg);"></i>
+                <h3 style="font-size: 0.9rem; text-align: center; margin: 0;">${sub}</h3>
+                <span style="font-size: 0.75rem; color: #64748b;">লিংক সংখ্যা: ${linkCount}টি</span>
+            </div>`;
+    });
+}
+
+function showResourceLinksForSubject(subName) {
+    activeResourceSubject = subName;
+    const box = document.getElementById('subject-links-display-box');
+    const title = document.getElementById('current-resource-subject-title');
+    const container = document.getElementById('resource-links-container');
+    
+    if(!box || !title || !container) return;
+    
+    title.innerText = `📚 ${subName} এর গুরুত্বপূর্ণ রিসোর্স ও লিংকস`;
+    container.innerHTML = '';
+    box.style.display = 'block';
+    
+    const links = globalSubjectResources[subName] || [];
+    if(links.length === 0) {
+        container.innerHTML = `<p style="color: #64748b; font-style: italic; font-size: 0.9rem; margin: 0;">এই বিষয়ের অধীনে এখনও কোনো লিংক ফাইল যুক্ত করা হয়নি।</p>`;
+        return;
+    }
+    
+    links.forEach(item => {
+        container.innerHTML += `
+            <a href="${item.url}" target="_blank" style="display: flex; justify-content: space-between; align-items: center; background: var(--theme-bg); border-radius: 6px; padding: 12px 15px; border: 1px solid #334155; text-decoration: none; color: white; font-size: 0.9rem;">
+                <span><i class="fa-solid fa-link" style="color: #10b981; margin-right: 8px;"></i> ${item.title}</span>
+                <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 0.8rem; color: #64748b;"></i>
+            </a>`;
+    });
+}
+
+async function uploadResourceLinksToFirebase() {
+    if(!window.fbFirestore || !window.firebaseDb) return;
+    try {
+        const docRef = window.fbFirestore.doc(window.firebaseDb, "settings", "subject_resources");
+        await window.fbFirestore.setDoc(docRef, { resources: globalSubjectResources });
+    } catch(e) {
+        console.error("Resource upload error:", e);
+    }
+}
+
+function addSubjectResourceLink() {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    const sub = document.getElementById('admin-resource-sub-dropdown').value;
+    const titleInput = document.getElementById('admin-resource-title');
+    const urlInput = document.getElementById('admin-resource-url');
+    
+    const title = titleInput.value.trim();
+    const url = urlInput.value.trim();
+
+    if(!title || !url) return alert("দয়া করে লিংকের দৃশ্যমান নাম এবং লুকানো URL দুটিই ইনপুট দিন!");
+
+    if(!globalSubjectResources[sub]) globalSubjectResources[sub] = [];
+    globalSubjectResources[sub].push({ title: title, url: url });
+    
+    titleInput.value = '';
+    urlInput.value = '';
+
+    renderAdminResourceTable();
+    uploadResourceLinksToFirebase();
+}
+
+function deleteSubjectResourceLink(sub, idx) {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    if(confirm(`আপনি কি নিশ্চিতভাবে "${globalSubjectResources[sub][idx].title}" লিংকটি ডিলিট করতে চান?`)) {
+        globalSubjectResources[sub].splice(idx, 1);
+        renderAdminResourceTable();
+        uploadResourceLinksToFirebase();
+    }
+}
+
+function renderAdminResourceTable() {
+    const tbody = document.getElementById('admin-resource-table-body');
+    if(!tbody) return;
+    tbody.innerHTML = '';
+    
+    fixedSubjects.forEach(sub => {
+        const links = globalSubjectResources[sub] || [];
+        links.forEach((link, idx) => {
+            tbody.innerHTML += `
+                <tr>
+                    <td style="color: var(--theme-btn-bg); font-weight: bold;">${sub}</td>
+                    <td>${link.title}</td>
+                    <td><a href="${link.url}" target="_blank" style="color: #64748b; font-size: 0.8rem;">${link.url}</a></td>
+                    <td><button onclick="deleteSubjectResourceLink('${sub}', ${idx})" class="kick-btn">ডিলিট</button></td>
+                </tr>`;
+        });
+    });
+}
+
+function renderNestedSyllabus() {
+    const container = document.getElementById('syllabus-nested-container');
+    if(!container) return;
+    container.innerHTML = '';
+
+    const chapters = globalSyllabusData[currentSelectedSubject] || [];
+    if (chapters.length === 0) {
+        container.innerHTML = '<p style="text-align: center; padding: 20px; color: #64748b;">এই বিষয়ের সিলেবাস ডাটাবেজ খালি।</p>';
+        return;
+    }
+
+    const isAdmin = currentUser && currentUser.role === 'admin';
+
+    chapters.forEach((chap, cIdx) => {
+        let subunitsHtml = '';
+        chap.subunits.forEach((unit, uIdx) => {
+            const tickKey = `${currentSelectedSubject}_${cIdx}_${uIdx}`;
+            const isChecked = userTicksData[tickKey] || false;
+            
+            subunitsHtml += `
+                <div class="subunit-item ${isChecked ? 'completed' : ''}">
+                    <div class="subunit-left">
+                        <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleSubunitTick('${tickKey}', this.checked)">
+                        <span>${unit}</span>
+                    </div>
+                    ${isAdmin ? `<button class="delete-btn-icon" onclick="deleteSubunit(${cIdx}, ${uIdx})"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+                </div>`;
+        });
+
+        const isCollapsed = chap.collapsed || false;
+        container.innerHTML += `
+            <div class="chapter-block ${isCollapsed ? 'collapsed' : ''}">
+                <div class="chapter-header">
+                    <span class="chapter-title">${chap.title}</span>
+                    <div style="display: flex; align-items: center;">
+                        ${isAdmin ? `<button class="delete-btn-icon" onclick="deleteMainChapter(${cIdx})" style="margin-right: 12px;"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+                        <button class="delete-btn-icon" onclick="toggleChapter(${cIdx})"><i class="fa-solid ${isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'}"></i></button>
+                    </div>
+                </div>
+                <div class="subunit-container">${subunitsHtml}</div>
+                ${isAdmin ? `
+                    <div class="add-subunit-form">
+                        <input type="text" id="subunit-input-${cIdx}" placeholder="নতুন সাব-ইউনিট...">
+                        <button onclick="addSubunit(${cIdx})">যোগ</button>
+                    </div>` : ''}
+            </div>`;
+    });
+}
+
+async function uploadSyllabusToFirebase() {
+    if(!window.fbFirestore || !window.firebaseDb) return;
+    try {
+        await window.fbFirestore.setDoc(window.fbFirestore.doc(window.firebaseDb, "syllabusData", "global_syllabus"), globalSyllabusData);
+    } catch(e) { console.error(e); }
+}
+
+function selectSubject(val) {
+    currentSelectedSubject = val;
+    renderNestedSyllabus();
+}
+
 function addMainChapter() {
-    if (currentUser.role !== 'admin') return; const inputField = document.getElementById('new-chapter-input'); const title = inputField.value.trim(); if (title === '') return;
-    globalSyllabusData[currentSelectedSubject].push({ title: title, collapsed: false, subunits: [] }); inputField.value = ''; renderNestedSyllabus(); 
-    localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
-    saveSyllabusToCloud(); 
+    if (!currentUser || currentUser.role !== 'admin') return;
+    const title = document.getElementById('new-chapter-input').value.trim();
+    if (!title) return;
+
+    if (!globalSyllabusData[currentSelectedSubject]) globalSyllabusData[currentSelectedSubject] = [];
+    globalSyllabusData[currentSelectedSubject].push({ title: title, collapsed: false, subunits: [] });
+
+    document.getElementById('new-chapter-input').value = '';
+    uploadSyllabusToFirebase();
 }
-function deleteMainChapter(chapIndex) {
-    if (currentUser.role !== 'admin') return; if (confirm(`Remove this complete chapter partition database?`)) { globalSyllabusData[currentSelectedSubject].splice(chapIndex, 1); renderNestedSyllabus(); localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData)); saveSyllabusToCloud(); }
+
+function deleteMainChapter(index) {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    if(confirm("আপনি কি নিশ্চিতভাবে এই পুরো অধ্যায়টি মুছে ফেলতে চান?")) {
+        globalSyllabusData[currentSelectedSubject].splice(index, 1);
+        uploadSyllabusToFirebase();
+    }
 }
-function addSubunit(chapIndex) {
-    if (currentUser.role !== 'admin') return; const inputField = document.getElementById(`subunit-input-${chapIndex}`); const unitName = inputField.value.trim(); if (unitName === '') return;
-    globalSyllabusData[currentSelectedSubject][chapIndex].subunits.push(unitName); inputField.value = ''; renderNestedSyllabus(); 
-    localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
-    saveSyllabusToCloud(); 
+
+function addSubunit(chapterIndex) {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    const inputEl = document.getElementById(`subunit-input-${chapterIndex}`);
+    const name = inputEl.value.trim();
+    if (!name) return;
+
+    globalSyllabusData[currentSelectedSubject][chapterIndex].subunits.push(name);
+    inputEl.value = '';
+    uploadSyllabusToFirebase();
 }
-function deleteSubunit(chapIndex, unitIndex) {
-    if (currentUser.role !== 'admin') return; globalSyllabusData[currentSelectedSubject][chapIndex].subunits.splice(unitIndex, 1); renderNestedSyllabus(); 
-    localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
-    saveSyllabusToCloud(); 
+
+function deleteSubunit(chapterIndex, subunitIndex) {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    globalSyllabusData[currentSelectedSubject][chapterIndex].subunits.splice(subunitIndex, 1);
+    uploadSyllabusToFirebase();
 }
-function toggleChapter(chapIndex) {
-    const isCollapsed = !globalSyllabusData[currentSelectedSubject][chapIndex].collapsed; globalSyllabusData[currentSelectedSubject][chapIndex].collapsed = isCollapsed;
-    document.getElementById(`chap-block-${chapIndex}`).classList.toggle('collapsed', isCollapsed); document.getElementById(`toggle-icon-${chapIndex}`).className = isCollapsed ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-up';
-    localStorage.setItem('globalSyllabusData', JSON.stringify(globalSyllabusData));
-    saveSyllabusToCloud(); 
+
+function toggleChapter(index) {
+    const currentVal = globalSyllabusData[currentSelectedSubject][index].collapsed || false;
+    globalSyllabusData[currentSelectedSubject][index].collapsed = !currentVal;
+    renderNestedSyllabus();
 }
-function toggleSubunitTick(tickKey, isChecked) { userTicksData[tickKey] = isChecked; localStorage.setItem(`userTicks_${currentUser.username}`, JSON.stringify(userTicksData)); renderNestedSyllabus(); }
+
+function toggleSubunitTick(tickKey, isChecked) {
+    userTicksData[tickKey] = isChecked;
+    if (currentUser) {
+        localStorage.setItem(`userTicks_${currentUser.username}`, JSON.stringify(userTicksData));
+    }
+    renderNestedSyllabus();
+}
+
+function buildLeaderboardUI(sortedUsers) {
+    const tbody = document.getElementById('leaderboard-table-body');
+    if(!tbody) return;
+    tbody.innerHTML = '';
+
+    if (sortedUsers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;">আজকের কোনো ট্র্যাকিং রেকর্ড নেই।</td></tr>';
+        return;
+    }
+
+    sortedUsers.forEach((userObj, index) => {
+        const row = document.createElement('tr');
+        if (currentUser && userObj.username === currentUser.username) {
+            row.style.color = 'var(--theme-btn-bg)';
+            row.style.fontWeight = 'bold';
+        }
+        const hrs = Math.floor(userObj.studyTime / 3600);
+        const mins = Math.round((userObj.studyTime % 3600) / 60);
+
+        row.innerHTML = `<td>${index + 1}</td><td>${userObj.username.toUpperCase()}</td><td>${hrs}h ${mins}m</td>`;
+        tbody.appendChild(row);
+    });
+}
+
+async function saveDailyTaskSetting() {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    const txt = document.getElementById('admin-task-input').value.trim();
+    try {
+        await window.fbFirestore.setDoc(window.fbFirestore.doc(window.firebaseDb, "settings", "daily_task"), { text: txt, updatedAt: new Date() });
+        alert("আজকের ডেইলি টাস্ক সফলভাবে ক্লাউডে পোস্ট করা হয়েছে!");
+    } catch(err) { console.error(err); }
+}
+
 function openGoogleDrive() { window.open("https://drive.google.com/", "_blank"); }
 function triggerLocalFilePicker() { document.getElementById('hidden-local-file-picker').click(); }
-function handleLocalFileSelect(event) { const file = event.target.files[0]; if (!file) return; document.getElementById('file-status-box').innerHTML = `<i class="fa-solid fa-circle-check" style="color:#10b981;"></i> Loaded Source Reference: <strong>${file.name}</strong>`; document.getElementById('file-status-box').style.display = "block"; }
-function saveDayStartSetting() { const timeVal = document.getElementById('day-start-time').value; if (!timeVal) return alert("Please type a valid hour string config value!"); localStorage.setItem('globalDayStartBoundary', timeVal); alert(`Day transition cutoff boundary modified.`); }
+
+function handleLocalFileSelect(event) {
+    const file = event.target.files[0];
+    const statusBox = document.getElementById('file-status-box');
+    if (file && statusBox) {
+        statusBox.innerHTML = `লোকাল ফাইল লোড হয়েছে: <strong>${file.name}</strong> (${(file.size/(1024*1024)).toFixed(2)} MB)`;
+        statusBox.style.display = "block";
+    }
+}
+
+function renderDynamicLinksUI() {
+    const sidebarContainer = document.getElementById('dynamic-links-sidebar-container');
+    if(!sidebarContainer) return;
+    sidebarContainer.innerHTML = '';
+
+    globalDynamicLinks.forEach(link => {
+        sidebarContainer.innerHTML += `<a href="${link.url}" target="_blank" class="sidebar-item" style="border-left: 2px dashed var(--theme-btn-bg);"><i class="fa-solid fa-arrow-up-right-from-square"></i> ${link.title}</a>`;
+    });
+}
+
+function renderAdminLinksTable() {
+    const tbody = document.getElementById('admin-links-table-body');
+    if(!tbody) return;
+    tbody.innerHTML = '';
+
+    globalDynamicLinks.forEach((link, idx) => {
+        tbody.innerHTML += `<tr><td>${link.title}</td><td><small>${link.url}</small></td><td><button onclick="deleteDynamicExternalLink(${idx})" class="kick-btn">মুছুন</button></td></tr>`;
+    });
+}
+
+async function addDynamicExternalLink() {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    const t = document.getElementById('admin-link-title').value.trim();
+    const u = document.getElementById('admin-link-url').value.trim();
+    if(!t || !u) return alert("লিংকের নাম ও ইউআরএল দিন!");
+
+    globalDynamicLinks.push({ title: t, url: u });
+    try {
+        await window.fbFirestore.setDoc(window.fbFirestore.doc(window.firebaseDb, "settings", "external_links"), { links: globalDynamicLinks });
+    } catch(e) { console.error(e); }
+}
+
+async function deleteDynamicExternalLink(idx) {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    globalDynamicLinks.splice(idx, 1);
+    try {
+        await window.fbFirestore.setDoc(window.fbFirestore.doc(window.firebaseDb, "settings", "external_links"), { links: globalDynamicLinks });
+    } catch(e) { console.error(e); }
+}
 
 async function renderUserTable() {
-    const tbody = document.getElementById('user-table-body'); if(!tbody) return; tbody.innerHTML = '';
-    try {
-        const querySnapshot = await window.fbFirestore.getDocs(window.fbFirestore.collection(window.firebaseDb, "users"));
-        querySnapshot.forEach((docSnap) => { const u = docSnap.data(); tbody.innerHTML += `<tr><td>${u.username} ${u.role === 'admin' ? '(Admin)' : ''}</td><td>${u.password || '******'}</td><td>${u.role !== 'admin' ? `<button class="kick-btn" onclick="deleteLiveUser('${docSnap.id}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">Revoke</button>` : '-'}</td></tr>`; });
-    } catch (e) { tbody.innerHTML = '<tr><td colspan="3">Failed gathering data configuration metrics.</td></tr>'; }
-}
-async function addUser() {
-    const uName = document.getElementById('new-username').value.trim().toLowerCase(); const uPass = document.getElementById('new-password').value.trim(); if (uName === '' || uPass === '') return alert('All profile credential input items required!');
-    try {
-        const userCredential = await window.fbCreateUser(window.firebaseAuth, `${uName}@studymate.com`, uPass);
-        await window.fbFirestore.setDoc(window.fbFirestore.doc(window.firebaseDb, "users", userCredential.user.uid), { username: uName, password: uPass, role: 'user', uid: userCredential.user.uid });
-        document.getElementById('new-username').value = ''; document.getElementById('new-password').value = ''; renderUserTable(); alert('New member database profile established!');
-    } catch (error) { alert('Authorization registration exception failed execution pipeline paths.'); }
-}
-async function deleteLiveUser(uid) { if (confirm(`Revoke and purge this authentication record?`)) { try { await window.fbFirestore.deleteDoc(window.fbFirestore.doc(window.firebaseDb, "users", uid)); renderUserTable(); } catch (error) { alert("Execution aborted."); } } }
+    const tbody = document.getElementById('user-table-body');
+    if(!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="3">ইউজার টেবিল লোড হচ্ছে...</td></tr>';
 
-// --- 13. Dynamic System Analytics Reports & Calendars ---
+    try {
+        if(window.fbFirestore && window.firebaseDb) {
+            const querySnapshot = await window.fbFirestore.getDocs(window.fbFirestore.collection(window.firebaseDb, "users"));
+            tbody.innerHTML = '';
+            querySnapshot.forEach((doc) => {
+                const u = doc.data();
+                tbody.innerHTML += `<tr><td><strong>${u.username}</strong> (${u.role})</td><td><code>${u.password || '******'}</code></td><td><button onclick="deleteLiveUser('${doc.id}', '${u.username}')" class="kick-btn">কিক</button></td></tr>`;
+            });
+        }
+    } catch (e) { console.error(e); }
+}
+
+async function addUser() {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    const u = document.getElementById('new-username').value.trim().toLowerCase();
+    const p = document.getElementById('new-password').value.trim();
+    if (!u || p.length < 6) return alert("ইউজারনেম দিন এবং পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের রাখুন!");
+
+    try {
+        if(window.fbCreateUser && window.firebaseAuth && window.fbFirestore) {
+            const uCred = await window.fbCreateUser(window.firebaseAuth, `${u}@studymate.com`, p);
+            await window.fbFirestore.setDoc(window.fbFirestore.doc(window.firebaseDb, "users", uCred.user.uid), { username: u, password: p, role: 'user', uid: uCred.user.uid });
+            renderUserTable();
+            alert(`সফলভাবে "${u}" অ্যাকাউন্ট তৈরি করা হয়েছে!`);
+        }
+    } catch (e) { alert("অ্যাকাউন্ট তৈরি করা ব্যর্থ হয়েছে!"); }
+}
+
+async function deleteLiveUser(docId, targetUsername) {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    if (targetUsername === 'admin') return alert("প্রধান অ্যাডমিন অ্যাকাউন্ট কিক করা সম্ভব নয়!");
+    if (confirm(`আপনি কি নিশ্চিতভাবে "${targetUsername}" ইউজারকে সম্পূর্ণ কিক করতে চান?`)) {
+        try {
+            if(window.fbFirestore && window.firebaseDb) {
+                await window.fbFirestore.deleteDoc(window.fbFirestore.doc(window.firebaseDb, "users", docId));
+                renderUserTable();
+            }
+        } catch (e) { console.error(e); }
+    }
+}
+
+function saveDayStartSetting() {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    const timeVal = document.getElementById('day-start-time').value;
+    if(!timeVal) return;
+    localStorage.setItem('globalDayStartBoundary', timeVal);
+    alert(`দিন পরিবর্তনের বেঞ্চমার্ক সফলভাবে ${timeVal} টায় সেট করা হয়েছে!`);
+}
+
 function changeMonth(direction) {
     calendarCurrentDate.setMonth(calendarCurrentDate.getMonth() + direction);
     buildCalendar();
 }
+
 function buildCalendar() {
-    const grid = document.getElementById('calendar-days-grid'); if(!grid) return; grid.innerHTML = '';
-    const year = calendarCurrentDate.getFullYear(); const month = calendarCurrentDate.getMonth();
-    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    document.getElementById('calendar-month-year').innerText = `${monthNames[month]} ${year}`;
-    const adjustedFirstDay = new Date(year, month, 1).getDay() === 0 ? 6 : new Date(year, month, 1).getDay() - 1;
-    for (let i = 0; i < adjustedFirstDay; i++) { grid.innerHTML += `<div class="empty-cell"></div>`; }
-    for (let day = 1; day <= new Date(year, month + 1, 0).getDate(); day++) {
+    const grid = document.getElementById('calendar-days-grid');
+    if(!grid) return;
+    grid.innerHTML = '';
+
+    const year = calendarCurrentDate.getFullYear();
+    const month = calendarCurrentDate.getMonth();
+    const monthNames = ["জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন", "জুলাই", "আগস্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর"];
+    const monthYearEl = document.getElementById('calendar-month-year');
+    if(monthYearEl) monthYearEl.innerText = `${monthNames[month]} - ${year}`;
+
+    const firstDayIndex = new Date(year, month, 1).getDay();
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    const adjustedFirstDay = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
+
+    for (let i = 0; i < adjustedFirstDay; i++) grid.innerHTML += `<div class="empty-cell"></div>`;
+
+    for (let day = 1; day <= totalDays; day++) {
         const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        grid.innerHTML += `<div class="${dateStr === selectedReportDateStr ? 'active-date' : ''} ${userDailyLogs[dateStr] ? 'has-data' : ''}" onclick="loadReportForDate('${dateStr}')">${day}</div>`;
+        let cellClass = '';
+        if (dateStr === selectedReportDateStr) cellClass = 'active-date';
+        else if (userDailyLogs[dateStr]) cellClass = 'has-data';
+
+        grid.innerHTML += `<div class="${cellClass}" onclick="loadReportForDate('${dateStr}')">${day}</div>`;
     }
 }
+
 function loadReportForDate(dateStr) {
-    selectedReportDateStr = dateStr; if(document.getElementById('selected-date-display')) document.getElementById('selected-date-display').innerText = dateStr;
-    const dayData = userDailyLogs[dateStr] || {}; const activities = ['Self Study', 'Class/Mock Test', 'Mobile scroll', 'Prayer', 'Food', 'Sleep', 'Sports', 'Other'];
-    let totalSeconds = 0; let chartValues = []; let chartColors = ['#3b82f6', '#10b981', '#f43f5e', '#eab308', '#a855f7', '#6366f1', '#06b6d4', '#64748b'];
-    activities.forEach((act) => { const sec = dayData[act] || 0; totalSeconds += sec; const cleanId = act.replace(/[^a-zA-Z]/g, ""); if(document.getElementById(`rep-time-${cleanId}`)) document.getElementById(`rep-time-${cleanId}`).innerText = `${Math.round(sec / 60)}m`; chartValues.push(sec); });
-    if(document.getElementById('report-total-time')) document.getElementById('report-total-time').innerText = `${Math.floor(totalSeconds / 3600)}h ${Math.round((totalSeconds % 3600) / 60)}m`;
-    const chartEl = document.getElementById('report-donut-chart'); if(!chartEl) return;
-    if (totalSeconds === 0) { chartEl.style.background = `conic-gradient(#334155 0% 100%)`; document.getElementById('donut-center-text').innerText = "No Data"; } 
-    else {
-        let currentPercent = 0; let stops = [];
-        chartValues.forEach((val, i) => { if (val > 0) { const start = (currentPercent / totalSeconds) * 360; currentPercent += val; const end = (currentPercent / totalSeconds) * 360; stops.push(`${chartColors[i]} ${start}deg ${end}deg`); } });
-        chartEl.style.background = `conic-gradient(${stops.join(', ')})`; document.getElementById('donut-center-text').innerText = "Breakdown";
+    selectedReportDateStr = dateStr;
+    if(document.getElementById('selected-date-display')) document.getElementById('selected-date-display').innerText = dateStr;
+
+    const dayData = userDailyLogs[dateStr] || {};
+    let totalSeconds = 0;
+    const activities = ['Self Study', 'Class/Mock Test', 'Mobile scroll', 'Prayer', 'Food', 'Sleep', 'Sports', 'Other'];
+    const chartValues = [];
+    
+    activities.forEach((act) => {
+        const sec = dayData[act] || 0;
+        totalSeconds += sec;
+        const cleanId = act.replace(/[^a-zA-Z]/g, ""); 
+        const targetElement = document.getElementById(`rep-time-${cleanId}`);
+        if(targetElement) targetElement.innerText = `${Math.round(sec / 60)}m`;
+        chartValues.push(sec);
+    });
+
+    const totalHrs = Math.floor(totalSeconds / 3600);
+    const totalMins = Math.round((totalSeconds % 3600) / 60);
+    const totTimeEl = document.getElementById('report-total-time');
+    if(totTimeEl) totTimeEl.innerText = `${totalHrs}h ${totalMins}m`;
+
+    const chartEl = document.getElementById('report-donut-chart');
+    const centerText = document.getElementById('donut-center-text');
+    if(!chartEl) return;
+
+    if (totalSeconds === 0) {
+        chartEl.style.background = `conic-gradient(#334155 0% 100%)`;
+        centerText.innerText = "No Data Available";
+    } else {
+        let currentPercent = 0;
+        let gradientStops = [];
+        const colors = ['#3b82f6', '#10b981', '#f43f5e', '#eab308', '#a855f7', '#6366f1', '#06b6d4', '#64748b'];
+
+        chartValues.forEach((val, i) => {
+            if (val > 0) {
+                const startDeg = (currentPercent / totalSeconds) * 360;
+                currentPercent += val;
+                const endDeg = (currentPercent / totalSeconds) * 360;
+                gradientStops.push(`${colors[i]} ${startDeg}deg ${endDeg}deg`);
+            }
+        });
+        chartEl.style.background = `conic-gradient(${gradientStops.join(', ')})`;
+        centerText.innerText = "Data Loaded";
     }
+    buildCalendar();
 }
+
+// --- ১০. ফোন লক থেকে অন করার ইমার্জেন্সি রি-সিঙ্ক ব্যাকআপ লেয়ার (Visibility API) ---
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && isRunning) {
+        const lastActive = parseInt(localStorage.getItem('last_active_timestamp')) || Date.now();
+        const now = Date.now();
+        let elapsedSeconds = Math.floor((now - lastActive) / 1000);
+
+        if (elapsedSeconds > 2) { 
+            const remainingToLimit = 7200 - mainTimerSessionSeconds;
+            if (elapsedSeconds >= remainingToLimit) {
+                elapsedSeconds = remainingToLimit;
+            }
+
+            const todayStr = getLogicalDateString();
+            if(!userDailyLogs[todayStr]) userDailyLogs[todayStr] = {};
+            userDailyLogs[todayStr][currentActivity] = (userDailyLogs[todayStr][currentActivity] || 0) + elapsedSeconds;
+            mainTimerSessionSeconds += elapsedSeconds;
+            
+            if (isSubjectTimerRunning) {
+                if(!userSubjectDailyLogs[todayStr]) userSubjectDailyLogs[todayStr] = {};
+                userSubjectDailyLogs[todayStr][currentTrackingSubject] = (userSubjectDailyLogs[todayStr][currentTrackingSubject] || 0) + elapsedSeconds;
+                subjectTimerSessionSeconds += elapsedSeconds;
+            }
+
+            if (currentUser) {
+                localStorage.setItem(`userDailyLogs_${currentUser.username}`, JSON.stringify(userDailyLogs));
+                localStorage.setItem(`userSubjectDailyLogs_${currentUser.username}`, JSON.stringify(userSubjectDailyLogs));
+            }
+
+            updateTrackerCards();
+            if (isSubjectTimerRunning) updateSubjectTrackerUI();
+            syncTimeWithFirebaseCloud(todayStr);
+
+            if (mainTimerSessionSeconds >= 7200 || subjectTimerSessionSeconds >= 7200) {
+                stopTimer();
+                if (isSubjectTimerRunning) stopSubjectTimer();
+                alert("আপনার ট্র্যাকার সেশন ২ ঘণ্টা অতিক্রম করায় স্বয়ংক্রিয়ভাবে বন্ধ করা হয়েছে।");
+            }
+        }
+    }
+});
+
+// গ্লোবাল ফাংশন বাইন্ডিং (HTML ফাইল থেকে অ্যাক্সেস পাওয়ার জন্য)
+window.login = login;
+window.logout = logout;
+window.showPage = showPage;
+window.selectActivity = selectActivity;
+window.toggleSubjectTimer = toggleSubjectTimer;
+window.setCustomPomodoroTime = setCustomPomodoroTime;
+window.togglePomodoroTimer = togglePomodoroTimer;
+window.resetPomodoroTimer = resetPomodoroTimer;
+window.showResourceLinksForSubject = showResourceLinksForSubject;
+window.addSubjectResourceLink = addSubjectResourceLink;
+window.deleteSubjectResourceLink = deleteSubjectResourceLink;
+window.selectSubject = selectSubject;
+window.toggleSubunitTick = toggleSubunitTick;
+window.deleteSubunit = deleteSubunit;
+window.deleteMainChapter = deleteMainChapter;
+window.toggleChapter = toggleChapter;
+window.addSubunit = addSubunit;
+window.addMainChapter = addMainChapter;
+window.saveDailyTaskSetting = saveDailyTaskSetting;
+window.openGoogleDrive = openGoogleDrive;
+window.triggerLocalFilePicker = triggerLocalFilePicker;
+window.handleLocalFileSelect = handleLocalFileSelect;
+window.deleteDynamicExternalLink = deleteDynamicExternalLink;
+window.addDynamicExternalLink = addDynamicExternalLink;
+window.deleteLiveUser = deleteLiveUser;
+window.addUser = addUser;
+window.saveDayStartSetting = saveDayStartSetting;
+window.changeMonth = changeMonth;
+window.loadReportForDate = loadReportForDate;
+window.saveThemeSettings = saveThemeSettings;
+window.saveNoticeSettings = saveNoticeSettings;
+window.renderPublicDashboard = renderPublicDashboard;
